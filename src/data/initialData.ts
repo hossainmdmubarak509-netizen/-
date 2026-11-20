@@ -81,22 +81,34 @@ export const INITIAL_DIGITAL_SERVICES: DigitalServiceItem[] = [
 
 export const INITIAL_USERS: User[] = [
   {
+    id: 'user-admin',
+    name: 'টেলিকম এডমিন',
+    phone: '01844868379',
+    email: 'admin@telecomportal.bd',
+    role: 'admin',
+    balance: 50000.00,
+    password: 'mnb229Am',
+    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
+  },
+  {
+    id: 'user-demo-customer',
+    name: 'টেস্ট কাস্টমার',
+    phone: '01624488010',
+    email: 'customer@telecom.bd',
+    role: 'user',
+    balance: 850.00,
+    password: 'mnb229Am',
+    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+  },
+  {
     id: 'user-1',
     name: 'মোঃ রহিম চৌধুরী',
     phone: '01712345678',
     email: 'rahim@example.com',
     role: 'user',
     balance: 450.00,
+    password: 'mnb229Am',
     createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-  {
-    id: 'user-admin',
-    name: 'টেলিকম সুপার এডমিন',
-    phone: '01800000000',
-    email: 'admin@telecomportal.bd',
-    role: 'admin',
-    balance: 50000.00,
-    createdAt: new Date(Date.now() - 86400000 * 30).toISOString(),
   },
 ];
 
@@ -342,6 +354,11 @@ export const INITIAL_NID_ORDERS: NidOrderRequest[] = [
 export const INITIAL_SETTINGS: AppSettings = {
   noticeText: 'জরুরী ঘোষণা: দ্রুত ফ্লেক্সিলোড, স্পেশাল ড্রাইভ অফার এবং NID PDF/সার্ভার কপির জন্য ওয়ালেটে টাকা অ্যাড করুন। যেকোনো প্রয়োজনে এডমিন হোয়াটসঅ্যাপ হেল্পলাইন: +8801844868379 এ যোগাযোগ করুন।',
   noticeEnabled: true,
+  popupNoticeId: 'notice-initial-1',
+  popupNoticeTitle: 'স্বাগতম! জরুরী নোটিশ ও আপডেট',
+  popupNoticeText: 'আসসালামু আলাইকুম! টেলিকম ও ডিজিটাল সেবা পোর্টালে আপনাকে স্বাগতম।\n\n• ফ্লেক্সিলোড, স্পেশাল ডিসকাউন্ট ড্রাইভ অফার এবং NID PDF / সার্ভার কপি সার্ভিস এখন ২৪ ঘণ্টা চালু রয়েছে।\n• দ্রুত সেবা পেতে অ্যাড মানি করার পর ট্রানজেকশন আইডি (TrxID) সাবমিট করুন।\n• যেকোনো প্রয়োজনে পেইজের নিচে হোয়াটসঅ্যাপ হেল্পলাইন বাটনে যোগাযোগ করুন।',
+  popupNoticeEnabled: true,
+  popupNoticeSentAt: new Date().toISOString(),
   paymentNumbers: {
     bKash: '01700-112233 (Personal)',
     Nagad: '01800-445566 (Personal)',

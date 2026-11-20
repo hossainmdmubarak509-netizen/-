@@ -35,6 +35,9 @@ import {
   Volume2,
   VolumeX,
   ExternalLink,
+  LogOut,
+  Megaphone,
+  Send,
 } from 'lucide-react';
 import {
   User,
@@ -91,6 +94,7 @@ interface AdminPanelProps {
   onUpdateNotificationSettings: (newNotifSettings: Partial<NotificationSettings>) => void;
   onResetDemoData: () => void;
   onBackToUserView: () => void;
+  onLogout: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -123,9 +127,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateNotificationSettings,
   onResetDemoData,
   onBackToUserView,
+  onLogout,
 }) => {
   const [adminTab, setAdminTab] = useState<
-    'nid-orders' | 'services-builder' | 'drive-orders' | 'offers' | 'add-money' | 'recharges' | 'users' | 'settings' | 'notifications'
+    'nid-orders' | 'services-builder' | 'drive-orders' | 'offers' | 'add-money' | 'recharges' | 'users' | 'notice-broadcast' | 'settings' | 'notifications'
   >('nid-orders');
 
   const [notifFilter, setNotifFilter] = useState<'all' | 'unread' | 'recharge' | 'drive_offer' | 'nid_order' | 'add_money'>('all');
@@ -209,6 +214,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Settings form state
   const [noticeInput, setNoticeInput] = useState(settings.noticeText);
   const [noticeActive, setNoticeActive] = useState(settings.noticeEnabled);
+  const [popupTitleInput, setPopupTitleInput] = useState(settings.popupNoticeTitle || 'গুরুত্বপূর্ণ নোটিশ ও আপডেট');
+  const [popupTextInput, setPopupTextInput] = useState(settings.popupNoticeText || settings.noticeText);
+  const [popupEnabledInput, setPopupEnabledInput] = useState(settings.popupNoticeEnabled ?? true);
+  const [syncMarqueeBanner, setSyncMarqueeBanner] = useState(true);
   const [paymentNumbers, setPaymentNumbers] = useState(settings.paymentNumbers);
   const [whatsappInput, setWhatsappInput] = useState(settings.whatsappNumber || '+8801844868379');
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -446,6 +455,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <Users className="w-3.5 h-3.5" />
               <span>গ্রাহক মোড</span>
             </button>
+            <button
+              onClick={onLogout}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-600/90 hover:bg-rose-600 text-white flex items-center gap-1.5 transition-colors shadow-xs"
+              title="এডমিন প্যানেল থেকে লগআউট করুন"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>লগআউট</span>
+            </button>
           </div>
         </div>
 
@@ -583,7 +600,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <span>গ্রাহক</span>
         </button>
 
-        {/* 7. Settings */}
+        {/* 7. Send Notice Popup */}
+        <button
+          onClick={() => setAdminTab('notice-broadcast')}
+          className={`flex-1 min-w-[130px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            adminTab === 'notice-broadcast'
+              ? 'bg-amber-500 text-slate-950 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Megaphone className="w-4 h-4" />
+          <span>নোটিশ পাঠান</span>
+        </button>
+
+        {/* 8. Settings */}
         <button
           onClick={() => setAdminTab('settings')}
           className={`flex-1 min-w-[100px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
@@ -1383,6 +1413,142 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           >
             সেটিংস সংরক্ষণ করুন
           </button>
+        </div>
+      )}
+
+      {/* TAB 7.5: NOTICE BROADCAST (POPUP NOTICE SENDER) */}
+      {adminTab === 'notice-broadcast' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Notice Composer Card */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5 md:p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Megaphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">
+                    কাস্টমারদের জন্য নোটিশ পাঠান
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    কাস্টমার সাইটে প্রবেশ করলেই এই নোটিশ পপআপ আকারে একবার ভেসে উঠবে
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !popupEnabledInput;
+                  setPopupEnabledInput(next);
+                  onUpdateSettings({ popupNoticeEnabled: next });
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                  popupEnabledInput
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : 'bg-slate-100 text-slate-600 border border-slate-200'
+                }`}
+              >
+                {popupEnabledInput ? 'পপআপ চালু' : 'পপআপ বন্ধ'}
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  নোটিশের শিরোনাম (Title)
+                </label>
+                <input
+                  type="text"
+                  value={popupTitleInput}
+                  onChange={(e) => setPopupTitleInput(e.target.value)}
+                  placeholder="যেমন: জরুরী ঘোষণা ও আজকের বিশেষ অফার!"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 outline-none text-sm font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  নোটিশ মেসেজ / বিস্তারিত
+                </label>
+                <textarea
+                  rows={5}
+                  value={popupTextInput}
+                  onChange={(e) => setPopupTextInput(e.target.value)}
+                  placeholder="কাস্টমারদের উদ্দেশ্যে আপনার নোটিশ লিখুন..."
+                  className="w-full p-3 rounded-xl border border-slate-200 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 outline-none text-xs sm:text-sm leading-relaxed"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={syncMarqueeBanner}
+                  onChange={(e) => setSyncMarqueeBanner(e.target.checked)}
+                  className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span>উপরের নোটিশ ব্যানারেও একসাথে আপডেট করুন</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!popupTextInput.trim()) return;
+                  const nowIso = new Date().toISOString();
+                  setPopupEnabledInput(true);
+                  const singleLineNotice = popupTextInput.trim().replace(/\n+/g, ' · ');
+                  if (syncMarqueeBanner) {
+                    setNoticeInput(singleLineNotice);
+                    setNoticeActive(true);
+                  }
+                  onUpdateSettings({
+                    popupNoticeId: `notice-${Date.now()}`,
+                    popupNoticeTitle: popupTitleInput.trim() || 'গুরুত্বপূর্ণ ঘোষণা',
+                    popupNoticeText: popupTextInput.trim(),
+                    popupNoticeEnabled: true,
+                    popupNoticeSentAt: nowIso,
+                    ...(syncMarqueeBanner
+                      ? { noticeText: singleLineNotice, noticeEnabled: true }
+                      : {}),
+                  });
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 transition-all"
+              >
+                <Send className="w-4 h-4" />
+                <span>সব কাস্টমারের জন্য নোটিশ পাঠান</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Live Customer Popup Preview Card */}
+          <div className="bg-slate-100 rounded-2xl border border-slate-200 p-5 flex flex-col justify-center">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3 text-center">
+              কাস্টমার স্ক্রিনে যেমন দেখাবে (লাইভ প্রিভিউ)
+            </p>
+            <div className="bg-white rounded-3xl shadow-lg border border-slate-200/80 overflow-hidden max-w-sm mx-auto w-full">
+              <div className="bg-gradient-to-br from-indigo-950 via-indigo-800 to-purple-800 p-4 text-white flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0">
+                  <Megaphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/15 text-amber-300">
+                    এডমিন নোটিশ
+                  </span>
+                  <h4 className="font-extrabold text-sm leading-snug mt-0.5">
+                    {popupTitleInput || 'গুরুত্বপূর্ণ ঘোষণা'}
+                  </h4>
+                </div>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/70 text-slate-800 text-xs leading-relaxed whitespace-pre-line">
+                  {popupTextInput || 'এখানে আপনার পাঠানো নোটিশ দেখা যাবে...'}
+                </div>
+                <div className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-center text-xs font-bold">
+                  বুঝেছি, ঠিক আছে
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

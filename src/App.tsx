@@ -32,26 +32,49 @@ import { UserDashboard } from './components/UserDashboard';
 import { AdminPanel } from './components/AdminPanel';
 import { ReceiptModal } from './components/ReceiptModal';
 import { NotificationModal } from './components/NotificationModal';
-import { WhatsAppSupportButton } from './components/WhatsAppSupportButton';
-import { CheckCircle2, AlertCircle, Info, X, Users, Bell } from 'lucide-react';
+import { SideMenuDrawer } from './components/SideMenuDrawer';
+import { CustomerNoticeModal } from './components/CustomerNoticeModal';
+import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
 
 const STORAGE_KEY_PREFIX = 'bd_telecom_portal_';
 
 export default function App() {
-  // Load state from localStorage or fallback to initial constants
+  // Load state from localStorage with guaranteed Admin (01844868379) and Demo Customer (01624488010)
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}users`);
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
+    if (!saved) return INITIAL_USERS;
+    try {
+      const parsed: User[] = JSON.parse(saved);
+      let merged = [...parsed];
+      // Guarantee Admin user
+      const adminIdx = merged.findIndex((u) => u.phone === '01844868379');
+      if (adminIdx >= 0) {
+        merged[adminIdx] = { ...merged[adminIdx], role: 'admin', password: 'mnb229Am' };
+      } else {
+        merged.unshift(INITIAL_USERS[0]);
+      }
+      // Guarantee Demo Customer user
+      const demoIdx = merged.findIndex((u) => u.phone === '01624488010');
+      if (demoIdx >= 0) {
+        merged[demoIdx] = { ...merged[demoIdx], password: 'mnb229Am' };
+      } else {
+        merged.splice(1, 0, INITIAL_USERS[1]);
+      }
+      return merged;
+    } catch {
+      return INITIAL_USERS;
+    }
   });
 
+  // Direct login page requirement: if not logged in, must be null
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const savedId = localStorage.getItem(`${STORAGE_KEY_PREFIX}current_user_id`);
     if (savedId) {
       const found = users.find((u) => u.id === savedId);
       if (found) return found;
     }
-    // Default to first user (মোঃ রহিম) for seamless experience
-    return users[0] || null;
+    // Directly go to login page by default
+    return null;
   });
 
   const [offers, setOffers] = useState<DriveOffer[]>(() => {
@@ -86,15 +109,24 @@ export default function App() {
 
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}settings`);
-    return saved ? JSON.parse(saved) : INITIAL_SETTINGS;
+    if (!saved) return INITIAL_SETTINGS;
+    try {
+      return { ...INITIAL_SETTINGS, ...JSON.parse(saved) };
+    } catch {
+      return INITIAL_SETTINGS;
+    }
   });
 
-  // UI state
-  const [currentView, setCurrentView] = useState<'user' | 'admin'>('user');
+  // UI state: if restored user is verified admin, open admin panel automatically; otherwise user view
+  const [currentView, setCurrentView] = useState<'user' | 'admin'>(() =>
+    currentUser?.role === 'admin' && currentUser?.phone === '01844868379' ? 'admin' : 'user'
+  );
   const [activeTab, setActiveTab] = useState<'recharge' | 'offers' | 'nid-services' | 'add-money' | 'history'>('recharge');
+  const [selectedNidServiceId, setSelectedNidServiceId] = useState<string | undefined>(undefined);
+  const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
   const [selectedReceipt, setSelectedReceipt] = useState<RechargeRequest | AddMoneyRequest | NidOrderRequest | null>(null);
-  const [showUserSwitcherModal, setShowUserSwitcherModal] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [dismissedPopupNoticeKey, setDismissedPopupNoticeKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Sync to localStorage
@@ -147,17 +179,36 @@ export default function App() {
   };
 
   // Auth handlers
-  const handleLogin = (user: User) => {
+  const handleLogin = (user: User, openAdmin: boolean = false) => {
     if (!users.some((u) => u.id === user.id)) {
       setUsers((prev) => [user, ...prev]);
     }
     setCurrentUser(user);
-    showToast(`স্বাগতম, ${user.name}!`);
+    if (openAdmin || user.role === 'admin' || user.phone === '01844868379') {
+      setCurrentView('admin');
+      showToast(`এডমিন প্যানেলে স্বাগতম, ${user.name}!`);
+    } else {
+      setCurrentView('user');
+      showToast(`স্বাগতম, ${user.name}!`);
+    }
   };
 
   const handleLogout = () => {
+    setIsSideMenuOpen(false);
+    setSelectedNidServiceId(undefined);
+    setDismissedPopupNoticeKey(null);
     setCurrentUser(null);
+    setCurrentView('user');
     showToast('সফলভাবে লগআউট হয়েছে।', 'info');
+  };
+
+  // Secure View Toggle: Only verified logged-in admin can switch views
+  const handleToggleView = (view: 'user' | 'admin') => {
+    if (view === 'admin' && currentUser && currentUser.phone === '01844868379' && currentUser.role === 'admin') {
+      setCurrentView('admin');
+    } else {
+      setCurrentView('user');
+    }
   };
 
   // Central Admin Notification Dispatcher with Sound & Browser Push
@@ -679,6 +730,23 @@ export default function App() {
 
   const unreadNotificationsCount = notifications.filter((n) => !n.read).length;
 
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen text-slate-800 selection:bg-indigo-500 selection:text-white">
+        <AuthSection onLogin={handleLogin} availableUsers={users} />
+
+        {toast && (
+          <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-xl border text-xs sm:text-sm font-semibold transition-all animate-in slide-in-from-bottom-5 duration-200 bg-slate-900 text-white border-slate-800">
+            {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+            {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
+            {toast.type === 'info' && <Info className="w-4 h-4 text-sky-400 shrink-0" />}
+            <span>{toast.message}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-800 flex flex-col selection:bg-indigo-500 selection:text-white">
       
@@ -687,15 +755,13 @@ export default function App() {
         currentUser={currentUser}
         currentView={currentView}
         unreadNotificationsCount={unreadNotificationsCount}
-        whatsappNumber={settings.whatsappNumber || '+8801844868379'}
-        onToggleView={(view) => setCurrentView(view)}
-        onLogout={handleLogout}
+        onToggleView={handleToggleView}
         onOpenAddMoney={() => {
           setCurrentView('user');
           setActiveTab('add-money');
         }}
-        onSwitchUserPrompt={() => setShowUserSwitcherModal(true)}
         onOpenNotifications={() => setShowNotificationModal(true)}
+        onOpenSideMenu={() => setIsSideMenuOpen(true)}
       />
 
       {/* 2. Announcement Notice Banner */}
@@ -703,7 +769,7 @@ export default function App() {
 
       {/* 3. Main Content Container */}
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {currentView === 'admin' ? (
+        {currentUser.role === 'admin' && currentUser.phone === '01844868379' && currentView === 'admin' ? (
           <AdminPanel
             users={users}
             offers={offers}
@@ -734,9 +800,8 @@ export default function App() {
             onUpdateNotificationSettings={handleUpdateNotificationSettings}
             onResetDemoData={handleResetDemoData}
             onBackToUserView={() => setCurrentView('user')}
+            onLogout={handleLogout}
           />
-        ) : !currentUser ? (
-          <AuthSection onLogin={handleLogin} availableUsers={users} />
         ) : (
           <UserDashboard
             currentUser={currentUser}
@@ -747,15 +812,42 @@ export default function App() {
             digitalServices={digitalServices}
             settings={settings}
             activeTab={activeTab}
+            selectedNidServiceId={selectedNidServiceId}
+            onSelectNidService={(id) => setSelectedNidServiceId(id)}
             onTabChange={(tab) => setActiveTab(tab)}
             onRechargeSubmit={handleRechargeSubmit}
             onBuyOffer={handleBuyOffer}
             onOrderNidService={handleOrderNidService}
             onAddMoneySubmit={handleAddMoneySubmit}
             onViewReceipt={(item) => setSelectedReceipt(item)}
+            onLogout={handleLogout}
           />
         )}
       </main>
+
+      {/* Left Side Three-Dot Menu Drawer */}
+      {currentView === 'user' && (
+        <SideMenuDrawer
+          isOpen={isSideMenuOpen}
+          onClose={() => setIsSideMenuOpen(false)}
+          currentUser={currentUser}
+          activeTab={activeTab}
+          selectedServiceId={selectedNidServiceId}
+          digitalServices={digitalServices}
+          whatsappNumber={settings.whatsappNumber || '+8801844868379'}
+          onSelectTab={(tab) => {
+            setCurrentView('user');
+            setSelectedNidServiceId(undefined);
+            setActiveTab(tab);
+          }}
+          onSelectDigitalService={(serviceId) => {
+            setCurrentView('user');
+            setSelectedNidServiceId(serviceId);
+            setActiveTab('nid-services');
+          }}
+          onLogout={handleLogout}
+        />
+      )}
 
       {/* 4. Digital Voucher / Receipt Modal */}
       <ReceiptModal
@@ -763,85 +855,48 @@ export default function App() {
         onClose={() => setSelectedReceipt(null)}
       />
 
-      {/* 5. Admin Notification Drawer Modal */}
-      <NotificationModal
-        isOpen={showNotificationModal}
-        onClose={() => setShowNotificationModal(false)}
-        notifications={notifications}
-        settings={settings.notifications}
-        onMarkAllAsRead={handleMarkAllNotificationsAsRead}
-        onMarkAsRead={handleMarkNotificationAsRead}
-        onDeleteNotification={handleDeleteNotification}
-        onClearAll={handleClearAllNotifications}
-        onToggleSound={(soundEnabled) => handleUpdateNotificationSettings({ soundEnabled })}
-        onNavigateToOrder={(type) => {
-          setCurrentView('admin');
-        }}
-      />
-
-      {/* 5. Fast User Switcher Modal */}
-      {showUserSwitcherModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 text-slate-800 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-150">
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-indigo-600" />
-                <h4 className="font-bold text-base text-slate-900">একাউন্ট পরিবর্তন করুন</h4>
-              </div>
-              <button
-                onClick={() => setShowUserSwitcherModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-2 mb-4">
-              {users.map((u) => {
-                const isSelected = currentUser?.id === u.id;
-                return (
-                  <button
-                    key={u.id}
-                    onClick={() => {
-                      setCurrentUser(u);
-                      setShowUserSwitcherModal(false);
-                      showToast(`${u.name} হিসেবে সুইচ করা হয়েছে।`);
-                    }}
-                    className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                      isSelected
-                        ? 'border-indigo-600 bg-indigo-50/70 ring-1 ring-indigo-500'
-                        : 'border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div>
-                      <p className="font-bold text-xs text-slate-900">{u.name}</p>
-                      <p className="font-mono-nums text-[11px] text-slate-500">{u.phone}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono-nums font-bold text-indigo-700 text-xs">
-                        {formatTaka(u.balance)}
-                      </span>
-                      <span className="block text-[10px] text-slate-400 font-medium">
-                        {u.role === 'admin' ? 'এডমিন' : 'কাস্টমার'}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={() => {
-                setCurrentUser(null);
-                setShowUserSwitcherModal(false);
-              }}
-              className="w-full py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors"
-            >
-              + নতুন একাউন্টে লগইন করুন
-            </button>
-          </div>
-        </div>
+      {/* 5. Admin Notification Drawer Modal (Admin Only) */}
+      {currentUser.role === 'admin' && currentUser.phone === '01844868379' && (
+        <NotificationModal
+          isOpen={showNotificationModal}
+          onClose={() => setShowNotificationModal(false)}
+          notifications={notifications}
+          settings={settings.notifications}
+          onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+          onMarkAsRead={handleMarkNotificationAsRead}
+          onDeleteNotification={handleDeleteNotification}
+          onClearAll={handleClearAllNotifications}
+          onToggleSound={(soundEnabled) => handleUpdateNotificationSettings({ soundEnabled })}
+          onNavigateToOrder={() => {
+            handleToggleView('admin');
+          }}
+        />
       )}
+
+      {/* Customer Entrance Notice Popup (Shown once per website entry / new notice) */}
+      {(() => {
+        const isCustomer = !(currentUser.role === 'admin' && currentUser.phone === '01844868379');
+        const activePopupNoticeId = settings.popupNoticeId || 'notice-default';
+        const activePopupNoticeMessage = settings.popupNoticeText ?? settings.noticeText ?? '';
+        const activePopupNoticeTitle = settings.popupNoticeTitle || 'গুরুত্বপূর্ণ নোটিশ ও আপডেট';
+        const currentPopupKey = `${currentUser.id}_${activePopupNoticeId}`;
+        const shouldShow =
+          isCustomer &&
+          currentView === 'user' &&
+          settings.popupNoticeEnabled !== false &&
+          Boolean(activePopupNoticeMessage.trim()) &&
+          dismissedPopupNoticeKey !== currentPopupKey;
+
+        return (
+          <CustomerNoticeModal
+            isOpen={shouldShow}
+            title={activePopupNoticeTitle}
+            message={activePopupNoticeMessage}
+            sentAt={settings.popupNoticeSentAt}
+            onClose={() => setDismissedPopupNoticeKey(currentPopupKey)}
+          />
+        );
+      })()}
 
       {/* 6. Toast Notification */}
       {toast && (
@@ -853,25 +908,11 @@ export default function App() {
         </div>
       )}
 
-      {/* 7. Floating WhatsApp Admin Helpline Button */}
-      <WhatsAppSupportButton phoneNumber={settings.whatsappNumber || '+8801844868379'} />
-
-      {/* 8. Footer */}
-      <footer className="bg-slate-900 text-slate-400 py-6 px-4 border-t border-slate-800 text-xs text-center">
+      {/* 7. Footer */}
+      <footer className="bg-slate-900 text-slate-400 py-5 px-4 border-t border-slate-800 text-xs text-center">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <p>© {new Date().getFullYear()} টেলিকম ও ডিজিটাল সেবা পোর্টাল BD. সর্বস্বত্ব সংরক্ষিত।</p>
-          <div className="flex items-center gap-4 text-slate-400">
-            <a
-              href={`https://wa.me/${(settings.whatsappNumber || '+8801844868379').replace(/[^0-9]/g, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-emerald-400 font-mono-nums font-semibold flex items-center gap-1.5 transition-colors"
-            >
-              <span>হোয়াটসঅ্যাপ হেল্পলাইন: {settings.whatsappNumber || '+8801844868379'}</span>
-            </a>
-            <span>·</span>
-            <span>সকাল ৮টা - রাত ১১টা</span>
-          </div>
+          <span>সকাল ৮টা - রাত ১১টা</span>
         </div>
       </footer>
 

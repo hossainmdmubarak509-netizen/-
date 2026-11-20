@@ -36,6 +36,7 @@ export interface User {
   email: string;
   role: 'user' | 'admin';
   balance: number;
+  password?: string;
   createdAt: string;
 }
 
@@ -143,6 +144,11 @@ export interface NotificationSettings {
 export interface AppSettings {
   noticeText: string;
   noticeEnabled: boolean;
+  popupNoticeId?: string;
+  popupNoticeTitle?: string;
+  popupNoticeText?: string;
+  popupNoticeEnabled?: boolean;
+  popupNoticeSentAt?: string;
   paymentNumbers: {
     bKash: string;
     Nagad: string;
