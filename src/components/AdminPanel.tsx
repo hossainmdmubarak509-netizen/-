@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -38,6 +38,8 @@ import {
   LogOut,
   Megaphone,
   Send,
+  Paperclip,
+  AlertCircle,
 } from 'lucide-react';
 import {
   User,
@@ -54,7 +56,7 @@ import {
   NotificationSettings,
 } from '../types/telecom';
 import { formatTaka, formatDateTime, OPERATORS } from '../utils/telecomUtils';
-import { generateSampleNidPdf, triggerFileDownload } from '../utils/pdfHelper';
+import { generateSampleNidPdf, triggerFileDownload, readFileAsDataUrl } from '../utils/pdfHelper';
 import { playNotificationSound, requestBrowserNotificationPermission } from '../utils/soundHelper';
 
 interface AdminPanelProps {
@@ -138,12 +140,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Copy feedback
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
-  // Delivery Modal for NID Orders with Real PDF Upload
+  // Delivery Modal for NID Orders with Real File Upload (PDF, Images, Docs, Any File)
   const [deliveringNidOrder, setDeliveringNidOrder] = useState<NidOrderRequest | null>(null);
   const [deliveryNoteInput, setDeliveryNoteInput] = useState('আপনার অফিসিয়াল কপি প্রস্তুত। ডাউনলোড করে নিন।');
   const [uploadedPdfDataUrl, setUploadedPdfDataUrl] = useState<string | null>(null);
   const [uploadedPdfFileName, setUploadedPdfFileName] = useState<string | null>(null);
   const [uploadedPdfFileSize, setUploadedPdfFileSize] = useState<string | null>(null);
+  const [uploadFileError, setUploadFileError] = useState<string | null>(null);
+  const [isReadingAdminFile, setIsReadingAdminFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // New Service Modal State (Custom Digital Service Builder)
@@ -222,6 +226,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [whatsappInput, setWhatsappInput] = useState(settings.whatsappNumber || '+8801844868379');
   const [settingsSaved, setSettingsSaved] = useState(false);
 
+  // Keep settings form state synced if settings change (e.g. demo reset)
+  useEffect(() => {
+    setNoticeInput(settings.noticeText);
+    setNoticeActive(settings.noticeEnabled);
+    setPopupTitleInput(settings.popupNoticeTitle || 'গুরুত্বপূর্ণ নোটিশ ও আপডেট');
+    setPopupTextInput(settings.popupNoticeText || settings.noticeText);
+    setPopupEnabledInput(settings.popupNoticeEnabled ?? true);
+    setPaymentNumbers(settings.paymentNumbers);
+    setWhatsappInput(settings.whatsappNumber || '+8801844868379');
+  }, [settings]);
+
   // Computed metrics
   const pendingNidOrders = nidOrders.filter((o) => o.status === 'pending');
   const pendingNidOrdersTotal = pendingNidOrders.reduce((sum, o) => sum + o.fee, 0);
@@ -257,25 +272,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setAdjustingUser(null);
   };
 
-  // Handle PDF file selection from admin computer
-  const handlePdfFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle any file selection (PDF, images, docs, etc.) from admin device
+  const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (reader.result) {
-        setUploadedPdfDataUrl(reader.result as string);
-        setUploadedPdfFileName(file.name);
-        setUploadedPdfFileSize(`${(file.size / 1024).toFixed(1)} KB`);
-      }
-    };
-    reader.readAsDataURL(file);
+    setUploadFileError(null);
+    setIsReadingAdminFile(true);
+    try {
+      const res = await readFileAsDataUrl(file);
+      setUploadedPdfDataUrl(res.dataUrl);
+      setUploadedPdfFileName(res.fileName);
+      setUploadedPdfFileSize(res.fileSize);
+    } catch (err: any) {
+      setUploadFileError(err?.message || 'ফাইল আপলোড করতে সমস্যা হয়েছে।');
+    } finally {
+      setIsReadingAdminFile(false);
+    }
   };
 
   // Generate Sample PDF instantly
   const handleGenerateSamplePdf = () => {
     if (!deliveringNidOrder) return;
+    setUploadFileError(null);
     const sample = generateSampleNidPdf({
       serviceTitle: deliveringNidOrder.serviceTitle,
       name: deliveringNidOrder.name,
@@ -291,23 +311,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setUploadedPdfFileSize(sample.fileSize);
   };
 
-  // Confirm NID delivery with PDF
+  // Confirm NID delivery with uploaded file (PDF, image, doc, etc.)
   const handleConfirmNidDelivery = (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveringNidOrder) return;
+
+    const finalDataUrl = uploadedPdfDataUrl || deliveringNidOrder.pdfDataUrl || undefined;
+    const finalFileName =
+      uploadedPdfFileName ||
+      deliveringNidOrder.pdfFileName ||
+      (finalDataUrl ? `${deliveringNidOrder.serviceTitle}_${deliveringNidOrder.nidNumber}.pdf` : undefined);
+    const finalFileSize = uploadedPdfFileSize || deliveringNidOrder.pdfFileSize || (finalDataUrl ? 'File' : undefined);
 
     onCompleteNidOrder(
       deliveringNidOrder.id,
       deliveryNoteInput,
       '#',
-      uploadedPdfDataUrl || undefined,
-      uploadedPdfFileName || `${deliveringNidOrder.serviceTitle}_${deliveringNidOrder.nidNumber}.pdf`,
-      uploadedPdfFileSize || 'PDF'
+      finalDataUrl,
+      finalFileName,
+      finalFileSize
     );
     setDeliveringNidOrder(null);
     setUploadedPdfDataUrl(null);
     setUploadedPdfFileName(null);
     setUploadedPdfFileSize(null);
+    setUploadFileError(null);
   };
 
   // Service builder handlers
@@ -354,6 +382,72 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       onUpdateDigitalService(editingServiceId, serviceForm);
     }
     setShowServiceModal(false);
+  };
+
+  // Offer create / edit handlers
+  const handleOpenCreateOffer = () => {
+    setOfferModalMode('create');
+    setEditingOfferId(null);
+    setOfferForm({
+      operator: 'GP',
+      title: '',
+      category: 'combo',
+      description: '',
+      regularPrice: 799,
+      offerPrice: 649,
+      validity: '৩০ দিন',
+      division: 'সারাদেশে চলবে',
+      commission: 150,
+      tag: 'হট ডিল 🔥',
+      active: true,
+    });
+    setShowOfferModal(true);
+  };
+
+  const handleOpenEditOffer = (offer: DriveOffer) => {
+    setOfferModalMode('edit');
+    setEditingOfferId(offer.id);
+    setOfferForm({
+      operator: offer.operator,
+      title: offer.title,
+      category: offer.category,
+      description: offer.description || '',
+      regularPrice: offer.regularPrice,
+      offerPrice: offer.offerPrice,
+      validity: offer.validity,
+      division: offer.division,
+      commission: offer.commission ?? Math.max(0, offer.regularPrice - offer.offerPrice),
+      tag: offer.tag || '',
+      active: offer.active,
+    });
+    setShowOfferModal(true);
+  };
+
+  const handleSaveOffer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!offerForm.title.trim()) return;
+
+    const payload: Omit<DriveOffer, 'id'> = {
+      operator: offerForm.operator,
+      title: offerForm.title.trim(),
+      category: offerForm.category,
+      description: offerForm.description.trim() || undefined,
+      regularPrice: Number(offerForm.regularPrice) || 0,
+      offerPrice: Number(offerForm.offerPrice) || 0,
+      validity: offerForm.validity.trim() || '৩০ দিন',
+      division: offerForm.division.trim() || 'সারাদেশে চলবে',
+      commission: Math.max(0, (Number(offerForm.regularPrice) || 0) - (Number(offerForm.offerPrice) || 0)),
+      tag: offerForm.tag.trim() || undefined,
+      active: offerForm.active,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (offerModalMode === 'create') {
+      onAddOffer(payload);
+    } else if (editingOfferId) {
+      onUpdateOffer(editingOfferId, payload);
+    }
+    setShowOfferModal(false);
   };
 
   // Field helpers for Service Builder
@@ -721,22 +815,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           </span>
                         </td>
 
-                        <td className="p-3 max-w-[280px]">
+                        <td className="p-3 max-w-[300px]">
                           <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 font-mono-nums font-bold text-slate-900 text-sm">
-                              <span>NID: {order.nidNumber}</span>
-                              <button
-                                onClick={() => copyToClipboard(order.nidNumber)}
-                                className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-800"
-                                title="কপি করুন"
-                              >
-                                {copiedText === order.nidNumber ? (
-                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                ) : (
-                                  <Copy className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                            </div>
+                            {order.nidNumber && order.nidNumber !== 'N/A' && (
+                              <div className="flex items-center gap-1.5 font-mono-nums font-bold text-slate-900 text-sm">
+                                <span>NID: {order.nidNumber}</span>
+                                <button
+                                  onClick={() => copyToClipboard(order.nidNumber)}
+                                  className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-800"
+                                  title="কপি করুন"
+                                >
+                                  {copiedText === order.nidNumber ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            )}
 
                             {order.name && (
                               <div className="flex items-center gap-1 text-slate-700 font-semibold">
@@ -751,13 +847,49 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </div>
                             )}
 
-                            <div className="text-slate-600 font-mono-nums">
-                              জন্ম তারিখ: <b>{order.dateOfBirth}</b>
-                            </div>
+                            {order.dateOfBirth && order.dateOfBirth !== 'N/A' && (
+                              <div className="text-slate-600 font-mono-nums">
+                                জন্ম তারিখ: <b>{order.dateOfBirth}</b>
+                              </div>
+                            )}
 
                             {order.district && (
                               <div className="text-slate-500 text-[11px]">
                                 এলাকা: <b>{order.upazila}</b>, <b>{order.district}</b>
+                              </div>
+                            )}
+
+                            {/* Any additional custom formData fields */}
+                            {order.formData &&
+                              Object.entries(order.formData)
+                                .filter(([k, v]) => v && !['name', 'nidNumber', 'dateOfBirth', 'upazila', 'district'].includes(k))
+                                .map(([k, v]) => (
+                                  <div key={k} className="text-slate-600 text-[11px] break-all">
+                                    <span className="text-slate-400">{k}:</span> <b>{v}</b>
+                                  </div>
+                                ))}
+
+                            {/* Customer Uploaded Files */}
+                            {order.customerFiles && order.customerFiles.length > 0 && (
+                              <div className="pt-1.5 mt-1 border-t border-slate-100 space-y-1">
+                                <span className="text-[10px] font-bold text-indigo-700 block">
+                                  গ্রাহকের আপলোড করা ফাইল ({order.customerFiles.length} টি):
+                                </span>
+                                <div className="flex flex-wrap gap-1">
+                                  {order.customerFiles.map((cf) => (
+                                    <button
+                                      key={cf.id}
+                                      type="button"
+                                      onClick={() => triggerFileDownload(cf.dataUrl, cf.fileName)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-bold transition-colors"
+                                      title="কাস্টমারের ফাইল ডাউনলোড/দেখুন"
+                                    >
+                                      <Paperclip className="w-3 h-3 shrink-0" />
+                                      <span className="max-w-[140px] truncate">{cf.fileName}</span>
+                                      <Download className="w-3 h-3 shrink-0" />
+                                    </button>
+                                  ))}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -781,14 +913,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {isPending && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
                               <Clock className="w-3 h-3" />
-                              পেন্ডিং (PDF প্রয়োজন)
+                              পেন্ডিং (ফাইল প্রয়োজন)
                             </span>
                           )}
                           {isCompleted && (
                             <div>
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                 <CheckCircle2 className="w-3 h-3" />
-                                PDF ডেলিভারি সম্পন্ন
+                                ডেলিভারি সম্পন্ন
                               </span>
                               {order.pdfFileName && (
                                 <div className="text-[10px] text-slate-500 font-mono-nums mt-0.5">
@@ -808,7 +940,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <td className="p-3 text-right">
                           {isPending ? (
                             <div className="flex items-center justify-end gap-1.5">
-                              {/* Open PDF Delivery Modal */}
+                              {/* Open File/PDF Delivery Modal */}
                               <button
                                 onClick={() => {
                                   setDeliveringNidOrder(order);
@@ -818,12 +950,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   setUploadedPdfDataUrl(null);
                                   setUploadedPdfFileName(null);
                                   setUploadedPdfFileSize(null);
+                                  setUploadFileError(null);
                                 }}
                                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-1 shadow-2xs"
-                                title="PDF আপলোড করে সফল করুন"
+                                title="ফাইল বা PDF আপলোড করে সফল করুন"
                               >
                                 <UploadCloud className="w-3.5 h-3.5" />
-                                <span>PDF আপলোড ও সফল</span>
+                                <span>ফাইল আপলোড ও সফল</span>
                               </button>
 
                               <button
@@ -835,7 +968,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </button>
                             </div>
                           ) : (
-                            <div className="flex items-center justify-end gap-1">
+                            <div className="flex items-center justify-end gap-1.5">
                               {order.pdfDataUrl && (
                                 <button
                                   onClick={() =>
@@ -844,15 +977,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       order.pdfFileName || `${order.serviceTitle}.pdf`
                                     )
                                   }
-                                  className="p-1 hover:bg-emerald-50 text-emerald-700 rounded"
-                                  title="আপলোডকৃত PDF ফাইল দেখুন/ডাউনলোড করুন"
+                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200"
+                                  title="আপলোডকৃত ফাইল দেখুন/ডাউনলোড করুন"
                                 >
-                                  <Download className="w-4 h-4" />
+                                  <Download className="w-3.5 h-3.5" />
                                 </button>
                               )}
-                              <span className="text-slate-400 text-[11px]">
-                                {isCompleted ? '✓ সম্পন্ন' : 'রিফান্ডেড'}
-                              </span>
+                              {isCompleted && (
+                                <button
+                                  onClick={() => {
+                                    setDeliveringNidOrder(order);
+                                    setDeliveryNoteInput(
+                                      order.deliveryNote || `আপনার ${order.serviceTitle} প্রস্তুত। ডাউনলোড করে নিন।`
+                                    );
+                                    setUploadedPdfDataUrl(order.pdfDataUrl || null);
+                                    setUploadedPdfFileName(order.pdfFileName || null);
+                                    setUploadedPdfFileSize(order.pdfFileSize || null);
+                                    setUploadFileError(null);
+                                  }}
+                                  className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-[11px] border border-indigo-200 flex items-center gap-1"
+                                  title="ডেলিভারি ফাইল আপলোড বা পরিবর্তন করুন"
+                                >
+                                  <UploadCloud className="w-3 h-3" />
+                                  <span>{order.pdfDataUrl ? 'ফাইল বদলান' : 'ফাইল আপলোড'}</span>
+                                </button>
+                              )}
+                              {!isCompleted && (
+                                <span className="text-slate-400 text-[11px]">রিফান্ডেড</span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -1047,29 +1199,93 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* TAB 4: OFFERS */}
       {adminTab === 'offers' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5 md:p-6">
-          <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100">
-            <h3 className="font-bold text-base text-slate-900">ডিসকাউন্ট ড্রাইভ অফার তালিকা</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 mb-4 border-b border-slate-100 gap-3">
+            <div>
+              <h3 className="font-bold text-base text-slate-900">ডিসকাউন্ট ড্রাইভ অফার তালিকা</h3>
+              <p className="text-xs text-slate-500">নতুন ড্রাইভ অফার যোগ করুন, দাম এডিট করুন অথবা চালু/বন্ধ রাখুন</p>
+            </div>
             <button
-              onClick={() => {
-                setOfferModalMode('create');
-                setShowOfferModal(true);
-              }}
-              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white font-bold text-xs"
+              type="button"
+              onClick={handleOpenCreateOffer}
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs self-start sm:self-auto"
             >
-              + নতুন অফার
+              <Plus className="w-4 h-4" />
+              <span>+ নতুন অফার যোগ করুন</span>
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {offers.map((o) => (
-              <div key={o.id} className="p-3 rounded-xl border border-slate-200 text-xs">
-                <div className="flex justify-between font-bold mb-1">
-                  <span>{o.operator}</span>
-                  <span className="text-emerald-600">৳{o.offerPrice}</span>
+              <div
+                key={o.id}
+                className={`p-4 rounded-xl border text-xs flex flex-col justify-between transition-all ${
+                  o.active ? 'border-slate-200 bg-white' : 'border-slate-200 bg-slate-50 opacity-70'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-extrabold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        {o.operator}
+                      </span>
+                      {o.tag && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">
+                          {o.tag}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateOffer(o.id, { active: !o.active })}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                        o.active
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {o.active ? 'চালু' : 'বন্ধ'}
+                    </button>
+                  </div>
+
+                  <p className="font-bold text-sm text-slate-900 mb-1">{o.title}</p>
+                  {o.description && (
+                    <p className="text-[11px] text-slate-500 mb-2 line-clamp-2">{o.description}</p>
+                  )}
+
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="text-base font-extrabold font-mono-nums text-emerald-600">
+                      {formatTaka(o.offerPrice)}
+                    </span>
+                    <span className="text-[11px] line-through text-slate-400 font-mono-nums">
+                      {formatTaka(o.regularPrice)}
+                    </span>
+                    <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
+                      ছাড় ৳{Math.max(0, o.regularPrice - o.offerPrice)}
+                    </span>
+                  </div>
                 </div>
-                <p className="font-semibold">{o.title}</p>
-                <div className="mt-2 flex justify-between">
-                  <span className="text-slate-400">{o.validity}</span>
-                  <button onClick={() => onDeleteOffer(o.id)} className="text-rose-600">মুছুন</button>
+
+                <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                  <span className="text-slate-500 text-[11px]">
+                    {o.validity} · {o.division}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditOffer(o)}
+                      className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                      title="অফার এডিট করুন"
+                    >
+                      <Edit className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteOffer(o.id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                      title="অফার মুছুন"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1207,8 +1423,99 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {adminTab === 'settings' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-5 md:p-6 space-y-5 text-xs">
           <div>
-            <h3 className="font-bold text-base text-slate-900">সিস্টেম ও নোটিফিকেশন সেটিংস</h3>
-            <p className="text-slate-500 text-xs">অর্ডার নোটিফিকেশন অ্যালার্ট, সাউন্ড ও নোটিশ নিয়ন্ত্রণ করুন</p>
+            <h3 className="font-bold text-base text-slate-900">সিস্টেম, পেমেন্ট নাম্বার ও নোটিফিকেশন সেটিংস</h3>
+            <p className="text-slate-500 text-xs">বিকাশ, নগদ, রকেট, উপায় নাম্বার, অর্ডার অ্যালার্ট ও নোটিশ নিয়ন্ত্রণ করুন</p>
+          </div>
+
+          {/* Payment Numbers (bKash, Nagad, Rocket, Upay) */}
+          <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-amber-200/80">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-amber-700" />
+                <div>
+                  <span className="font-bold text-slate-900 text-xs sm:text-sm block">
+                    পেমেন্ট একাউন্ট নাম্বার পরিবর্তন (অ্যাড মানি)
+                  </span>
+                  <span className="text-[11px] text-slate-600">
+                    কাস্টমাররা অ্যাড মানি পেইজে এই বিকাশ, নগদ, রকেট ও উপায় নাম্বার দেখতে পাবেন
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdateSettings({ paymentNumbers });
+                  setSettingsSaved(true);
+                  setTimeout(() => setSettingsSaved(false), 2500);
+                }}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-2xs self-start sm:self-auto"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{settingsSaved ? 'নাম্বার সেভ হয়েছে!' : 'নাম্বার সেভ করুন'}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block font-bold text-[#e2136e] mb-1">
+                  বিকাশ (bKash) নাম্বার
+                </label>
+                <input
+                  type="text"
+                  value={paymentNumbers.bKash}
+                  onChange={(e) =>
+                    setPaymentNumbers((prev) => ({ ...prev, bKash: e.target.value }))
+                  }
+                  placeholder="01XXXXXXXXX (Personal)"
+                  className="w-full p-2.5 border border-amber-200 focus:border-[#e2136e] rounded-xl font-mono-nums font-bold text-slate-900 bg-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#d97706] mb-1">
+                  নগদ (Nagad) নাম্বার
+                </label>
+                <input
+                  type="text"
+                  value={paymentNumbers.Nagad}
+                  onChange={(e) =>
+                    setPaymentNumbers((prev) => ({ ...prev, Nagad: e.target.value }))
+                  }
+                  placeholder="01XXXXXXXXX (Personal)"
+                  className="w-full p-2.5 border border-amber-200 focus:border-[#f7941d] rounded-xl font-mono-nums font-bold text-slate-900 bg-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#8c3494] mb-1">
+                  রকেট (Rocket) নাম্বার
+                </label>
+                <input
+                  type="text"
+                  value={paymentNumbers.Rocket}
+                  onChange={(e) =>
+                    setPaymentNumbers((prev) => ({ ...prev, Rocket: e.target.value }))
+                  }
+                  placeholder="01XXXXXXXXX (Personal)"
+                  className="w-full p-2.5 border border-amber-200 focus:border-[#8c3494] rounded-xl font-mono-nums font-bold text-slate-900 bg-white outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#0083ca] mb-1">
+                  উপায় (Upay) নাম্বার
+                </label>
+                <input
+                  type="text"
+                  value={paymentNumbers.Upay}
+                  onChange={(e) =>
+                    setPaymentNumbers((prev) => ({ ...prev, Upay: e.target.value }))
+                  }
+                  placeholder="01XXXXXXXXX (Personal)"
+                  className="w-full p-2.5 border border-amber-200 focus:border-[#0083ca] rounded-xl font-mono-nums font-bold text-slate-900 bg-white outline-none"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Notification Controls in Settings */}
@@ -1407,11 +1714,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 noticeText: noticeInput,
                 noticeEnabled: noticeActive,
                 whatsappNumber: whatsappInput,
+                paymentNumbers,
               });
             }}
-            className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-colors shadow-xs"
+            className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl transition-colors shadow-xs flex items-center gap-2"
           >
-            সেটিংস সংরক্ষণ করুন
+            <Save className="w-4 h-4" />
+            <span>সব সেটিংস সংরক্ষণ করুন</span>
           </button>
         </div>
       )}
@@ -1940,7 +2249,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* REAL PDF UPLOAD & DELIVERY MODAL */}
+      {/* REAL FILE / PDF UPLOAD & DELIVERY MODAL */}
       {deliveringNidOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 text-slate-800 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-150 my-6">
@@ -1948,7 +2257,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div className="flex items-center gap-2">
                 <FileCheck className="w-5 h-5 text-emerald-600" />
                 <h4 className="font-bold text-base text-slate-900">
-                  PDF আপলোড ও অর্ডার সফল করুন
+                  ফাইল / PDF আপলোড ও অর্ডার সফল করুন
                 </h4>
               </div>
               <button onClick={() => setDeliveringNidOrder(null)} className="text-slate-400">✕</button>
@@ -1956,53 +2265,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 mb-4 text-xs space-y-1">
               <div>সেবা: <b>{deliveringNidOrder.serviceTitle}</b></div>
-              <div>NID: <b className="font-mono-nums">{deliveringNidOrder.nidNumber}</b></div>
+              <div>NID / তথ্য: <b className="font-mono-nums">{deliveringNidOrder.nidNumber}</b></div>
               <div>গ্রাহক: <b>{deliveringNidOrder.userName}</b> ({deliveringNidOrder.userPhone})</div>
             </div>
 
             <form onSubmit={handleConfirmNidDelivery} className="space-y-4 text-xs">
               
-              {/* PDF File Upload Zone */}
+              {/* Universal File Upload Zone (Native label + sr-only input works reliably on ALL devices) */}
               <div>
                 <label className="block font-bold text-slate-700 mb-1.5">
-                  ১. PDF ফাইল আপলোড করুন (বাধ্যতামূলক নয়, অপশনাল)
+                  ১. ডেলিভারি ফাইল / PDF আপলোড করুন (PDF, ছবি, Word বা যেকোনো ফাইল)
                 </label>
 
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="application/pdf"
-                  onChange={handlePdfFileChange}
-                  className="hidden"
-                />
+                {uploadFileError && (
+                  <div className="mb-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{uploadFileError}</span>
+                  </div>
+                )}
 
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+                <label
+                  htmlFor="admin-delivery-file-input"
+                  className={`block border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
                     uploadedPdfFileName
                       ? 'border-emerald-500 bg-emerald-50/50'
                       : 'border-slate-300 hover:border-indigo-500 bg-slate-50/50'
                   }`}
                 >
+                  <input
+                    id="admin-delivery-file-input"
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handlePdfFileChange}
+                    className="sr-only"
+                  />
                   <FileUp className="w-6 h-6 text-indigo-600 mx-auto mb-1.5" />
-                  {uploadedPdfFileName ? (
+                  {isReadingAdminFile ? (
+                    <p className="font-bold text-indigo-700 text-xs">
+                      ফাইল লোড হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...
+                    </p>
+                  ) : uploadedPdfFileName ? (
                     <div>
-                      <p className="font-bold text-emerald-700 text-xs">
+                      <p className="font-bold text-emerald-700 text-xs break-all">
                         ✓ ফাইল সিলেক্ট হয়েছে: {uploadedPdfFileName}
                       </p>
-                      <p className="text-[10px] text-slate-500">সাইজ: {uploadedPdfFileSize}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        সাইজ: {uploadedPdfFileSize} · অন্য ফাইল দিতে আবার ক্লিক করুন
+                      </p>
                     </div>
                   ) : (
                     <div>
                       <p className="font-semibold text-slate-700">
-                        কম্পিউটার/মোবাইল থেকে PDF সিলেক্ট করতে ক্লিক করুন
+                        মোবাইল বা কম্পিউটার থেকে ফাইল সিলেক্ট করতে এখানে ক্লিক করুন
                       </p>
                       <p className="text-[10px] text-slate-400 mt-0.5">
-                        শুধুমাত্র .pdf ফরম্যাট
+                        PDF, JPG, PNG, DOC, ZIP বা যেকোনো ফাইল (সর্বোচ্চ ১০ MB)
                       </p>
                     </div>
                   )}
-                </div>
+                </label>
 
                 {/* Or Instant Sample PDF generator */}
                 <div className="mt-2 flex items-center justify-between">
@@ -2042,7 +2363,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
+                  disabled={isReadingAdminFile}
+                  className="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   <Check className="w-4 h-4" />
                   <span>অর্ডার সফল করুন</span>
@@ -2197,6 +2519,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <option value="number">নাম্বার</option>
                         <option value="date">তারিখ (Date)</option>
                         <option value="tel">মোবাইল (Tel)</option>
+                        <option value="file">ফাইল আপলোড (PDF/ছবি/ফাইল)</option>
                       </select>
                       {serviceForm.fields.length > 1 && (
                         <button
@@ -2309,6 +2632,200 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }`}
                 >
                   {adjustType === 'add' ? 'যোগ করুন' : 'কর্তন করুন'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CREATE / EDIT DRIVE OFFER MODAL */}
+      {showOfferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 text-slate-800 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-150 my-6">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Tag className="w-5 h-5 text-indigo-600" />
+                <div>
+                  <h4 className="font-bold text-base text-slate-900">
+                    {offerModalMode === 'create' ? 'নতুন ড্রাইভ অফার প্রকাশ করুন' : 'ড্রাইভ অফার এডিট করুন'}
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    প্রকাশ করার সাথে সাথেই কাস্টমারদের ডিসকাউন্ট অফার তালিকায় দেখা যাবে
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowOfferModal(false)}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveOffer} className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">অপারেটর *</label>
+                  <select
+                    value={offerForm.operator}
+                    onChange={(e) => setOfferForm({ ...offerForm, operator: e.target.value as Operator })}
+                    className="w-full p-2.5 rounded-xl border border-slate-200 outline-none font-bold"
+                  >
+                    {Object.keys(OPERATORS).map((op) => (
+                      <option key={op} value={op}>
+                        {op} ({OPERATORS[op as Operator].nameBn})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">ক্যাটাগরি *</label>
+                  <select
+                    value={offerForm.category}
+                    onChange={(e) =>
+                      setOfferForm({ ...offerForm, category: e.target.value as OfferCategory })
+                    }
+                    className="w-full p-2.5 rounded-xl border border-slate-200 outline-none font-semibold"
+                  >
+                    <option value="combo">কম্বো প্যাক (Combo)</option>
+                    <option value="internet">ইন্টারনেট (Internet)</option>
+                    <option value="minute">মিনিট প্যাক (Minute)</option>
+                    <option value="cashback">ক্যাশব্যাক (Cashback)</option>
+                    <option value="special">স্পেশাল অফার (Special)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">অফারের নাম / শিরোনাম *</label>
+                <input
+                  type="text"
+                  required
+                  value={offerForm.title}
+                  onChange={(e) => setOfferForm({ ...offerForm, title: e.target.value })}
+                  placeholder="উদাঃ 50 GB + 1000 মিনিট (৩০ দিন)"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">সংক্ষিপ্ত বিবরণ (ঐচ্ছিক)</label>
+                <input
+                  type="text"
+                  value={offerForm.description}
+                  onChange={(e) => setOfferForm({ ...offerForm, description: e.target.value })}
+                  placeholder="উদাঃ সারাদেশে চলবে, ব্যালেন্স চেক *121#"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">রেগুলার মূল্য (৳) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={offerForm.regularPrice}
+                    onChange={(e) =>
+                      setOfferForm({ ...offerForm, regularPrice: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full p-2.5 rounded-xl border border-slate-200 outline-none font-mono-nums font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">অফার মূল্য (৳) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={offerForm.offerPrice}
+                    onChange={(e) =>
+                      setOfferForm({ ...offerForm, offerPrice: parseFloat(e.target.value) || 0 })
+                    }
+                    className="w-full p-2.5 rounded-xl border border-slate-200 outline-none font-mono-nums font-bold text-emerald-700"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">মেয়াদ *</label>
+                  <input
+                    type="text"
+                    required
+                    value={offerForm.validity}
+                    onChange={(e) => setOfferForm({ ...offerForm, validity: e.target.value })}
+                    placeholder="উদাঃ ৩০ দিন"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">এরিয়া / বিভাগ *</label>
+                  <input
+                    type="text"
+                    required
+                    value={offerForm.division}
+                    onChange={(e) => setOfferForm({ ...offerForm, division: e.target.value })}
+                    placeholder="উদাঃ সারাদেশে চলবে"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">ট্যাগ / ব্যাজ (ঐচ্ছিক)</label>
+                  <input
+                    type="text"
+                    value={offerForm.tag}
+                    onChange={(e) => setOfferForm({ ...offerForm, tag: e.target.value })}
+                    placeholder="উদাঃ হট ডিল 🔥"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">স্ট্যাটাস</label>
+                  <select
+                    value={offerForm.active ? 'active' : 'inactive'}
+                    onChange={(e) => setOfferForm({ ...offerForm, active: e.target.value === 'active' })}
+                    className={`w-full p-2.5 rounded-xl border outline-none font-bold ${
+                      offerForm.active ? 'text-emerald-700 bg-emerald-50' : 'text-slate-600'
+                    }`}
+                  >
+                    <option value="active">চালু (Active)</option>
+                    <option value="inactive">বন্ধ (Off)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-between">
+                <span className="font-semibold">গ্রাহক সাশ্রয় / ডিসকাউন্ট:</span>
+                <span className="font-mono-nums font-extrabold text-sm">
+                  {formatTaka(Math.max(0, offerForm.regularPrice - offerForm.offerPrice))}
+                </span>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowOfferModal(false)}
+                  className="flex-1 py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 px-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{offerModalMode === 'create' ? 'অফার প্রকাশ করুন' : 'পরিবর্তন সংরক্ষণ করুন'}</span>
                 </button>
               </div>
             </form>

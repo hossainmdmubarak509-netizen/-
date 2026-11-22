@@ -200,6 +200,25 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
                     </span>
                   </div>
                 )}
+                {(receipt as NidOrderRequest).customerFiles &&
+                  (receipt as NidOrderRequest).customerFiles!.length > 0 && (
+                    <div className="pt-1 border-t border-slate-200 space-y-1">
+                      <span className="text-slate-600 text-xs block">গ্রাহকের সংযুক্ত ফাইল:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(receipt as NidOrderRequest).customerFiles!.map((cf) => (
+                          <button
+                            key={cf.id}
+                            type="button"
+                            onClick={() => triggerFileDownload(cf.dataUrl, cf.fileName)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-indigo-400 text-indigo-700 text-[11px] font-semibold"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>{cf.fileName}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 {(receipt as NidOrderRequest).deliveryNote && (
                   <div className="flex justify-between items-start gap-2 pt-1 border-t border-slate-200">
                     <span className="text-slate-600 shrink-0">ডেলিভারি নোট</span>
@@ -244,7 +263,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
             <span>ডিজিটাল সেবা পোর্টাল সিস্টেম দ্বারা স্বয়ংক্রিয়ভাবে প্রস্তুতকৃত অফিসিয়াল রশিদ।</span>
           </div>
 
-          {/* Completed NID Order PDF Download */}
+          {/* Completed NID Order File / PDF Download */}
           {isNidOrder && receipt.status === 'completed' && (
             <button
               onClick={() => {
@@ -261,7 +280,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
               className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-sm"
             >
               <Download className="w-4 h-4" />
-              <span>অফিসিয়াল PDF ডাউনলোড করুন</span>
+              <span>অফিসিয়াল ফাইল / PDF ডাউনলোড করুন</span>
               {(receipt as NidOrderRequest).pdfFileSize && (
                 <span className="text-xs text-emerald-100 font-mono-nums">
                   ({(receipt as NidOrderRequest).pdfFileSize})

@@ -11,6 +11,7 @@ import {
   Operator,
   SimType,
   PaymentMethod,
+  UploadedFileAttachment,
 } from '../types/telecom';
 import { formatTaka } from '../utils/telecomUtils';
 import { RechargeTab } from './RechargeTab';
@@ -48,6 +49,7 @@ interface UserDashboardProps {
     dateOfBirth: string;
     upazila?: string;
     district?: string;
+    customerFiles?: UploadedFileAttachment[];
   }) => void;
   onAddMoneySubmit: (data: {
     method: PaymentMethod;

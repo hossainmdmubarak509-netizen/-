@@ -22,9 +22,11 @@ import {
   PaymentMethod,
   AdminNotification,
   NotificationSettings,
+  UploadedFileAttachment,
 } from './types/telecom';
 import { generateTrxId, formatTaka } from './utils/telecomUtils';
 import { playNotificationSound, sendBrowserNotification } from './utils/soundHelper';
+import { saveFileBlob, getAllFileBlobs } from './utils/fileStorage';
 import { Navbar } from './components/Navbar';
 import { NoticeBanner } from './components/NoticeBanner';
 import { AuthSection } from './components/AuthSection';
@@ -129,45 +131,129 @@ export default function App() {
   const [dismissedPopupNoticeKey, setDismissedPopupNoticeKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  // Sync to localStorage
+  // Hydrate any large uploaded file blobs stored in IndexedDB on mount
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(users));
+    let mounted = true;
+    getAllFileBlobs().then((blobs) => {
+      if (!mounted || Object.keys(blobs).length === 0) return;
+      setNidOrders((prev) =>
+        prev.map((order) => {
+          const deliveryBlob = blobs[`delivery_${order.id}`];
+          const updatedCustomerFiles = order.customerFiles?.map((cf) => ({
+            ...cf,
+            dataUrl: cf.dataUrl || blobs[`customer_${cf.id}`] || '',
+          }));
+          return {
+            ...order,
+            pdfDataUrl: order.pdfDataUrl || deliveryBlob,
+            customerFiles: updatedCustomerFiles,
+          };
+        })
+      );
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Sync to localStorage safely
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(users));
+    } catch {
+      // Ignore storage quota issues
+    }
   }, [users]);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}current_user_id`, currentUser.id);
-    } else {
-      localStorage.removeItem(`${STORAGE_KEY_PREFIX}current_user_id`);
+    try {
+      if (currentUser) {
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}current_user_id`, currentUser.id);
+      } else {
+        localStorage.removeItem(`${STORAGE_KEY_PREFIX}current_user_id`);
+      }
+    } catch {
+      // Ignore storage quota issues
     }
   }, [currentUser]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}offers`, JSON.stringify(offers));
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}offers`, JSON.stringify(offers));
+    } catch {
+      // Ignore storage quota issues
+    }
   }, [offers]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}add_money`, JSON.stringify(addMoneyRequests));
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}add_money`, JSON.stringify(addMoneyRequests));
+    } catch {
+      // Ignore storage quota issues
+    }
   }, [addMoneyRequests]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}recharges`, JSON.stringify(rechargeRequests));
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}recharges`, JSON.stringify(rechargeRequests));
+    } catch {
+      // Ignore storage quota issues
+    }
   }, [rechargeRequests]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}nid_orders`, JSON.stringify(nidOrders));
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}nid_orders`, JSON.stringify(nidOrders));
+    } catch {
+      // If file base64 exceeds localStorage ~5MB quota, offload binary payloads to IndexedDB
+      nidOrders.forEach((order) => {
+        if (order.pdfDataUrl) {
+          saveFileBlob(`delivery_${order.id}`, order.pdfDataUrl);
+        }
+        order.customerFiles?.forEach((cf) => {
+          if (cf.dataUrl) {
+            saveFileBlob(`customer_${cf.id}`, cf.dataUrl);
+          }
+        });
+      });
+      try {
+        const lightweightOrders = nidOrders.map((order) => ({
+          ...order,
+          pdfDataUrl: order.pdfDataUrl && order.pdfDataUrl.length > 50000 ? '' : order.pdfDataUrl,
+          customerFiles: order.customerFiles?.map((cf) => ({
+            ...cf,
+            dataUrl: cf.dataUrl.length > 50000 ? '' : cf.dataUrl,
+          })),
+        }));
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}nid_orders`, JSON.stringify(lightweightOrders));
+      } catch {
+        // Ignore if storage is completely full
+      }
+    }
   }, [nidOrders]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}digital_services`, JSON.stringify(digitalServices));
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}digital_services`, JSON.stringify(digitalServices));
+    } catch {
+      // Ignore storage quota issues
+    }
   }, [digitalServices]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}notifications`, JSON.stringify(notifications));
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}notifications`, JSON.stringify(notifications));
+    } catch {
+      // Ignore storage quota issues
+    }
   }, [notifications]);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_KEY_PREFIX}settings`, JSON.stringify(settings));
+    try {
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}settings`, JSON.stringify(settings));
+    } catch {
+      // Ignore storage quota issues
+    }
   }, [settings]);
 
   // Toast helper
@@ -385,6 +471,7 @@ export default function App() {
     dateOfBirth: string;
     upazila?: string;
     district?: string;
+    customerFiles?: UploadedFileAttachment[];
   }) => {
     if (!currentUser) return;
 
@@ -414,10 +501,17 @@ export default function App() {
       dateOfBirth: data.dateOfBirth,
       upazila: data.upazila,
       district: data.district,
+      customerFiles: data.customerFiles,
       status: 'pending',
       timestamp: new Date().toISOString(),
       trxId: generateTrxId(),
     };
+
+    data.customerFiles?.forEach((cf) => {
+      if (cf.dataUrl) {
+        saveFileBlob(`customer_${cf.id}`, cf.dataUrl);
+      }
+    });
 
     setNidOrders((prev) => [newOrder, ...prev]);
     showToast(`${data.serviceTitle} সফলভাবে সাবমিট হয়েছে! ফি: ${formatTaka(data.fee)}`, 'success');
@@ -427,7 +521,7 @@ export default function App() {
     triggerAdminNotification({
       type: 'nid_order',
       title: `নতুন ${data.serviceTitle} অর্ডার!`,
-      message: `${currentUser.name} (${currentUser.phone}) - NID: ${data.nidNumber} দিয়ে ${data.serviceTitle} সাবমিট করেছেন।`,
+      message: `${currentUser.name} (${currentUser.phone}) - ${data.serviceTitle} সাবমিট করেছেন${data.customerFiles?.length ? ` (${data.customerFiles.length} টি ফাইলসহ)` : ''}।`,
       amount: data.fee,
       customerName: currentUser.name,
       customerPhone: currentUser.phone,
@@ -435,7 +529,7 @@ export default function App() {
     });
   };
 
-  // Admin Complete NID / Digital Service Order with PDF Upload
+  // Admin Complete NID / Digital Service Order with File / PDF Upload
   const handleCompleteNidOrder = (
     orderId: string,
     deliveryNote?: string,
@@ -444,6 +538,9 @@ export default function App() {
     pdfFileName?: string,
     pdfFileSize?: string
   ) => {
+    if (pdfDataUrl) {
+      saveFileBlob(`delivery_${orderId}`, pdfDataUrl);
+    }
     setNidOrders((prev) =>
       prev.map((o) =>
         o.id === orderId
@@ -460,7 +557,7 @@ export default function App() {
           : o
       )
     );
-    showToast('অর্ডার সফল ও PDF ফাইল ডেলিভারি সম্পন্ন হয়েছে!', 'success');
+    showToast('অর্ডার সফল ও ফাইল ডেলিভারি সম্পন্ন হয়েছে!', 'success');
   };
 
   // Admin Reject & Refund NID Order

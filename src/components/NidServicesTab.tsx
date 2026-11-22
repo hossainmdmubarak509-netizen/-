@@ -19,15 +19,19 @@ import {
   Zap,
   Lock,
   Plus,
+  FileUp,
+  Paperclip,
+  Trash2,
 } from 'lucide-react';
 import {
   DigitalServiceItem,
   NidOrderRequest,
   User,
   AppSettings,
+  UploadedFileAttachment,
 } from '../types/telecom';
 import { formatTaka, formatDateTime } from '../utils/telecomUtils';
-import { triggerFileDownload } from '../utils/pdfHelper';
+import { triggerFileDownload, readFileAsDataUrl } from '../utils/pdfHelper';
 
 interface NidServicesTabProps {
   currentUser: User;
@@ -46,6 +50,7 @@ interface NidServicesTabProps {
     dateOfBirth: string;
     upazila?: string;
     district?: string;
+    customerFiles?: UploadedFileAttachment[];
   }) => void;
   onOpenAddMoney: () => void;
   onViewReceipt: (order: NidOrderRequest) => void;
@@ -67,6 +72,8 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
   // Undefined means show service selection list; string means open dedicated order page for that service
   const [selectedServiceId, setSelectedServiceId] = useState<string | undefined>(externalServiceId);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [customerFiles, setCustomerFiles] = useState<UploadedFileAttachment[]>([]);
+  const [isReadingFiles, setIsReadingFiles] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [orderSubmitted, setOrderSubmitted] = useState(false);
 
@@ -74,6 +81,7 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
   useEffect(() => {
     setSelectedServiceId(externalServiceId);
     setFieldValues({});
+    setCustomerFiles([]);
     setError(null);
     setOrderSubmitted(false);
     if (externalServiceId) {
@@ -97,10 +105,46 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
     setError(null);
   };
 
+  const handleAttachCustomerFiles = async (fileList: FileList | null, fieldId?: string) => {
+    if (!fileList || fileList.length === 0) return;
+    setError(null);
+    setIsReadingFiles(true);
+    try {
+      const filesArray = Array.from(fileList);
+      const uploaded: UploadedFileAttachment[] = [];
+      for (const file of filesArray) {
+        const res = await readFileAsDataUrl(file);
+        uploaded.push({
+          id: `cfile-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          fileName: res.fileName,
+          fileSize: res.fileSize,
+          fileType: res.fileType,
+          dataUrl: res.dataUrl,
+        });
+      }
+      setCustomerFiles((prev) => [...prev, ...uploaded]);
+      if (fieldId && uploaded[0]) {
+        setFieldValues((prev) => ({
+          ...prev,
+          [fieldId]: uploaded.map((u) => u.fileName).join(', '),
+        }));
+      }
+    } catch (err: any) {
+      setError(err?.message || 'ফাইল আপলোড করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।');
+    } finally {
+      setIsReadingFiles(false);
+    }
+  };
+
+  const handleRemoveCustomerFile = (fileId: string) => {
+    setCustomerFiles((prev) => prev.filter((f) => f.id !== fileId));
+  };
+
   const handleOpenServiceOrderPage = (id: string) => {
     setSelectedServiceId(id);
     onSelectService?.(id);
     setFieldValues({});
+    setCustomerFiles([]);
     setError(null);
     setOrderSubmitted(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -110,6 +154,7 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
     setSelectedServiceId(undefined);
     onSelectService?.(undefined);
     setFieldValues({});
+    setCustomerFiles([]);
     setError(null);
     setOrderSubmitted(false);
   };
@@ -123,7 +168,11 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
     // Validate required fields
     for (const field of currentService.fields) {
       if (field.required && !fieldValues[field.id]?.trim()) {
-        setError(`অনুগ্রহ করে "${field.label}" পূরণ করুন।`);
+        setError(
+          field.type === 'file'
+            ? `অনুগ্রহ করে "${field.label}" এর জন্য ফাইল আপলোড করুন।`
+            : `অনুগ্রহ করে "${field.label}" পূরণ করুন।`
+        );
         return;
       }
     }
@@ -134,7 +183,7 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
     }
 
     const nidVal =
-      fieldValues['nidNumber'] || fieldValues['nid'] || fieldValues['regNumber'] || '0000000000';
+      fieldValues['nidNumber'] || fieldValues['nid'] || fieldValues['regNumber'] || 'N/A';
     const dobVal = fieldValues['dateOfBirth'] || fieldValues['dob'] || 'N/A';
     const nameVal = fieldValues['name'];
     const upazilaVal = fieldValues['upazila'];
@@ -150,9 +199,11 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
       dateOfBirth: dobVal,
       upazila: upazilaVal,
       district: districtVal,
+      customerFiles: customerFiles.length > 0 ? customerFiles : undefined,
     });
 
     setFieldValues({});
+    setCustomerFiles([]);
     setOrderSubmitted(true);
   };
 
@@ -306,7 +357,7 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                   <div
                     key={field.id}
                     className={
-                      field.id === 'name' || currentService.fields.length === 1
+                      field.id === 'name' || field.type === 'file' || currentService.fields.length === 1
                         ? 'sm:col-span-2'
                         : ''
                     }
@@ -316,16 +367,112 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                       <span>{field.label}</span>
                       {field.required && <span className="text-rose-500">*</span>}
                     </label>
-                    <input
-                      type={field.type}
-                      required={field.required}
-                      value={fieldValues[field.id] || ''}
-                      onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                      placeholder={field.placeholder}
-                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none text-sm font-semibold text-slate-900 placeholder:font-normal placeholder:text-slate-400 transition-all"
-                    />
+                    {field.type === 'file' ? (
+                      <label className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50/40 hover:bg-indigo-50 cursor-pointer transition-all">
+                        <div className="flex items-center gap-2.5 text-xs">
+                          <FileUp className="w-5 h-5 text-indigo-600 shrink-0" />
+                          <span className="font-semibold text-slate-700">
+                            {fieldValues[field.id]
+                              ? `সিলেক্টেড: ${fieldValues[field.id]}`
+                              : field.placeholder || 'PDF, ছবি বা যেকোনো ফাইল সিলেক্ট করুন'}
+                          </span>
+                        </div>
+                        <span className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-[11px] font-bold self-start sm:self-auto shrink-0">
+                          ফাইল বাছুন
+                        </span>
+                        <input
+                          type="file"
+                          onChange={(e) => {
+                            handleAttachCustomerFiles(e.target.files, field.id);
+                            e.target.value = '';
+                          }}
+                          className="sr-only"
+                        />
+                      </label>
+                    ) : (
+                      <input
+                        type={field.type}
+                        required={field.required}
+                        value={fieldValues[field.id] || ''}
+                        onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                        placeholder={field.placeholder}
+                        className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 outline-none text-sm font-semibold text-slate-900 placeholder:font-normal placeholder:text-slate-400 transition-all"
+                      />
+                    )}
                   </div>
                 ))}
+              </div>
+
+              {/* Universal Customer File / Document Attachment Zone (PDF, Image, Docs, Any File) */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                      <Paperclip className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-slate-800">
+                        প্রয়োজনীয় ডকুমেন্ট / ফাইল আপলোড (ঐচ্ছিক)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">
+                        PDF, ছবি (JPG/PNG), Word বা যেকোনো ফাইল সংযুক্ত করতে পারবেন
+                      </p>
+                    </div>
+                  </div>
+                  {customerFiles.length > 0 && (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                      {customerFiles.length} টি ফাইল
+                    </span>
+                  )}
+                </div>
+
+                <label className="block border-2 border-dashed border-slate-300 hover:border-indigo-500 bg-white rounded-2xl p-4 text-center cursor-pointer transition-all">
+                  <FileUp className="w-6 h-6 text-indigo-600 mx-auto mb-1.5" />
+                  <p className="text-xs font-bold text-slate-700">
+                    {isReadingFiles
+                      ? 'ফাইল লোড হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...'
+                      : 'মোবাইল বা কম্পিউটার থেকে PDF / ছবি / যেকোনো ফাইল আপলোড করতে এখানে ক্লিক করুন'}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    সর্বোচ্চ ১০ MB প্রতি ফাইল · একাধিক ফাইল সিলেক্ট করা যাবে
+                  </p>
+                  <input
+                    type="file"
+                    multiple
+                    onChange={(e) => {
+                      handleAttachCustomerFiles(e.target.files);
+                      e.target.value = '';
+                    }}
+                    className="sr-only"
+                  />
+                </label>
+
+                {customerFiles.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    {customerFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className="flex items-center justify-between gap-2 bg-white px-3 py-2 rounded-xl border border-emerald-200 text-xs"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="font-semibold text-slate-800 truncate">{file.fileName}</span>
+                          <span className="text-[10px] text-slate-400 font-mono-nums shrink-0">
+                            ({file.fileSize})
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCustomerFile(file.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors shrink-0"
+                          title="ফাইল সরিয়ে ফেলুন"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Wallet Summary Card */}
@@ -589,6 +736,23 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                       )}
                     </div>
 
+                    {order.customerFiles && order.customerFiles.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                        <span className="text-[11px] text-slate-500 font-medium">আপনার প্রদত্ত ফাইল:</span>
+                        {order.customerFiles.map((cf) => (
+                          <button
+                            key={cf.id}
+                            type="button"
+                            onClick={() => triggerFileDownload(cf.dataUrl, cf.fileName)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold transition-colors"
+                          >
+                            <Paperclip className="w-3 h-3" />
+                            <span>{cf.fileName}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
                     {order.deliveryNote && (
                       <div className="mt-1.5 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs text-emerald-900 flex items-start gap-1.5">
                         <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
@@ -607,10 +771,10 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                         <button
                           onClick={handleDownloadPdf}
                           className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"
-                          title="অফিসিয়াল PDF ডাউনলোড করুন"
+                          title="অফিসিয়াল ডেলিভারি ফাইল ডাউনলোড করুন"
                         >
                           <Download className="w-4 h-4" />
-                          <span>PDF ডাউনলোড</span>
+                          <span>ফাইল / PDF ডাউনলোড</span>
                         </button>
                       )}
                       <button

@@ -60,8 +60,8 @@ export const AddMoneyTab: React.FC<AddMoneyTabProps> = ({
   const activePaymentNumber = settings.paymentNumbers[method] || '01700-112233 (Personal)';
 
   const handleCopyNumber = () => {
-    // Extract only digits and hyphens
-    const numberOnly = activePaymentNumber.split(' ')[0];
+    const match = activePaymentNumber.match(/01[0-9-]+/);
+    const numberOnly = match ? match[0].replace(/-/g, '') : activePaymentNumber.split(' ')[0];
     navigator.clipboard.writeText(numberOnly);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);

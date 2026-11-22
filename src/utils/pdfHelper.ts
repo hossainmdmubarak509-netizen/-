@@ -1,6 +1,6 @@
 /**
  * Minimal dynamic PDF generator for simulated NID vouchers and official documents.
- * Produces genuine compliant PDF-1.4 files that open cleanly in Adobe Reader, Chrome, and mobile browsers.
+ * Produces genuine compliant PDF-1.4 files encoded as persistent base64 data URLs.
  */
 export function generateSampleNidPdf(data: {
   serviceTitle: string;
@@ -12,21 +12,22 @@ export function generateSampleNidPdf(data: {
   trxId: string;
   deliveryDate: string;
 }): { dataUrl: string; fileName: string; fileSize: string } {
-  const safeName = data.name || 'CITIZEN';
-  const cleanNid = data.nidNumber || '0000000000';
-  const fileName = `${data.serviceTitle.replace(/\s+/g, '_')}_${cleanNid}.pdf`;
+  const safeName = (data.name || 'CITIZEN').replace(/[^\x20-\x7E]/g, ' ');
+  const cleanNid = (data.nidNumber || '0000000000').replace(/[^\x20-\x7E]/g, '');
+  const cleanDob = (data.dateOfBirth || 'N/A').replace(/[^\x20-\x7E]/g, '');
+  const cleanService = data.serviceTitle.replace(/[^\x20-\x7E]/g, '').trim() || 'DIGITAL SERVICE';
+  const fileName = `${data.serviceTitle.replace(/\s+/g, '_')}_${cleanNid || 'COPY'}.pdf`;
 
-  // Standard compliant PDF header and text objects
+  // Standard compliant PDF header and text objects (ASCII safe)
   const title = `PEOPLE'S REPUBLIC OF BANGLADESH`;
   const subTitle = `ELECTION COMMISSION / NATIONAL ID SERVICES`;
-  const serviceName = data.serviceTitle.toUpperCase();
-  const line1 = `DOCUMENT TYPE: ${serviceName}`;
+  const line1 = `DOCUMENT TYPE: ${cleanService.toUpperCase()}`;
   const line2 = `NID NUMBER: ${cleanNid}`;
   const line3 = `NAME: ${safeName}`;
-  const line4 = `DATE OF BIRTH: ${data.dateOfBirth}`;
-  const line5 = `LOCATION: ${data.upazila || 'N/A'}, ${data.district || 'BANGLADESH'}`;
+  const line4 = `DATE OF BIRTH: ${cleanDob}`;
+  const line5 = `LOCATION: ${(data.upazila || 'N/A').replace(/[^\x20-\x7E]/g, '')}, ${(data.district || 'BANGLADESH').replace(/[^\x20-\x7E]/g, '')}`;
   const line6 = `TRANSACTION ID: ${data.trxId}`;
-  const line7 = `DELIVERY TIMESTAMP: ${data.deliveryDate}`;
+  const line7 = `DELIVERY TIMESTAMP: ${new Date().toISOString()}`;
   const line8 = `STATUS: OFFICIALLY VERIFIED AND PROCESSED`;
 
   const contentStream = `
@@ -96,21 +97,85 @@ startxref
 ${450 + streamLength}
 %%EOF`;
 
-  const blob = new Blob([pdfData], { type: 'application/pdf' });
-  const dataUrl = URL.createObjectURL(blob);
-  const fileSize = `${(blob.size / 1024).toFixed(1)} KB`;
+  const base64 = btoa(pdfData);
+  const dataUrl = `data:application/pdf;base64,${base64}`;
+  const sizeKb = (new Blob([pdfData]).size / 1024).toFixed(1);
 
   return {
     dataUrl,
     fileName,
-    fileSize,
+    fileSize: `${sizeKb} KB`,
   };
 }
 
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+export function readFileAsDataUrl(file: File): Promise<{
+  dataUrl: string;
+  fileName: string;
+  fileSize: string;
+  fileType: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const maxBytes = 10 * 1024 * 1024; // 10MB max per file
+    if (file.size > maxBytes) {
+      reject(new Error(`"${file.name}" ফাইলটি ১০ MB-এর বেশি বড়। অনুগ্রহ করে ১০ MB-এর কম সাইজের ফাইল দিন।`));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve({
+          dataUrl: reader.result,
+          fileName: file.name,
+          fileSize: formatFileSize(file.size),
+          fileType: file.type || 'application/octet-stream',
+        });
+      } else {
+        reject(new Error('ফাইল রিড করতে সমস্যা হয়েছে।'));
+      }
+    };
+    reader.onerror = () => reject(new Error(`"${file.name}" ফাইলটি পড়া যায়নি। আবার চেষ্টা করুন।`));
+    reader.onabort = () => reject(new Error('ফাইল আপলোড বাতিল হয়েছে।'));
+    reader.readAsDataURL(file);
+  });
+}
+
 /**
- * Triggers direct browser download of any data URL or blob
+ * Triggers direct browser download of any data URL or blob reliably across desktop & mobile
  */
 export function triggerFileDownload(dataUrl: string, fileName: string) {
+  try {
+    // Convert large data URLs to Blob URLs for more reliable Chrome/Android/iOS downloads
+    if (dataUrl.startsWith('data:')) {
+      const parts = dataUrl.split(',');
+      const mimeMatch = parts[0].match(/:(.*?);/);
+      const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+      const byteString = atob(parts[1]);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: mime });
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      return;
+    }
+  } catch {
+    // Fallback to direct link below
+  }
+
   const link = document.createElement('a');
   link.href = dataUrl;
   link.download = fileName;

@@ -8,12 +8,20 @@ export type OfferCategory = 'combo' | 'internet' | 'minute' | 'cashback' | 'spec
 
 export type NidServiceType = 'nid_pdf' | 'server_copy' | 'user_pass_set' | string;
 
+export interface UploadedFileAttachment {
+  id: string;
+  fileName: string;
+  fileSize: string;
+  fileType: string;
+  dataUrl: string;
+}
+
 export interface CustomServiceField {
   id: string;
   label: string;
   placeholder: string;
   required: boolean;
-  type: 'text' | 'number' | 'date' | 'tel';
+  type: 'text' | 'number' | 'date' | 'tel' | 'file';
 }
 
 export interface DigitalServiceItem {
@@ -114,7 +122,8 @@ export interface NidOrderRequest {
   deliveryFileUrl?: string;
   pdfFileName?: string;
   pdfFileSize?: string;
-  pdfDataUrl?: string; // Real Base64 or Blob Data URL for direct download
+  pdfDataUrl?: string; // Real Base64 Data URL for direct download (PDF, image, or any file)
+  customerFiles?: UploadedFileAttachment[];
   deliveryNote?: string;
   adminRemarks?: string;
 }
