@@ -1,4 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  updateDoc,
+} from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, sanitizeForFirestore, testConnection } from './firebase';
 import {
   INITIAL_USERS,
   INITIAL_OFFERS,
@@ -26,7 +37,8 @@ import {
 } from './types/telecom';
 import { generateTrxId, formatTaka } from './utils/telecomUtils';
 import { playNotificationSound, sendBrowserNotification } from './utils/soundHelper';
-import { saveFileBlob, getAllFileBlobs } from './utils/fileStorage';
+import { uploadCloudFile } from './utils/cloudFileService';
+import { hashPassword } from './utils/passwordHelper';
 import { Navbar } from './components/Navbar';
 import { NoticeBanner } from './components/NoticeBanner';
 import { AuthSection } from './components/AuthSection';
@@ -38,88 +50,48 @@ import { SideMenuDrawer } from './components/SideMenuDrawer';
 import { CustomerNoticeModal } from './components/CustomerNoticeModal';
 import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
 
-const STORAGE_KEY_PREFIX = 'bd_telecom_portal_';
+const SESSION_USER_ID_KEY = 'bd_telecom_portal_current_user_id';
+
+/**
+ * Prepares a User record for Firestore storage without ever persisting plaintext passwords.
+ */
+async function toCloudUserDoc(user: User): Promise<User> {
+  const passwordHash =
+    user.passwordHash || (user.password ? await hashPassword(user.password) : await hashPassword('mnb229Am'));
+  return sanitizeForFirestore({
+    id: user.id,
+    name: user.name,
+    phone: user.phone,
+    email: user.email || `${user.phone}@telecom.bd`,
+    role: user.role,
+    balance: Number(user.balance) || 0,
+    passwordHash,
+    createdAt: user.createdAt || new Date().toISOString(),
+  });
+}
 
 export default function App() {
-  // Load state from localStorage with guaranteed Admin (01844868379) and Demo Customer (01624488010)
-  const [users, setUsers] = useState<User[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}users`);
-    if (!saved) return INITIAL_USERS;
-    try {
-      const parsed: User[] = JSON.parse(saved);
-      let merged = [...parsed];
-      // Guarantee Admin user
-      const adminIdx = merged.findIndex((u) => u.phone === '01844868379');
-      if (adminIdx >= 0) {
-        merged[adminIdx] = { ...merged[adminIdx], role: 'admin', password: 'mnb229Am' };
-      } else {
-        merged.unshift(INITIAL_USERS[0]);
-      }
-      // Guarantee Demo Customer user
-      const demoIdx = merged.findIndex((u) => u.phone === '01624488010');
-      if (demoIdx >= 0) {
-        merged[demoIdx] = { ...merged[demoIdx], password: 'mnb229Am' };
-      } else {
-        merged.splice(1, 0, INITIAL_USERS[1]);
-      }
-      return merged;
-    } catch {
-      return INITIAL_USERS;
-    }
-  });
-
-  // Direct login page requirement: if not logged in, must be null
+  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const savedId = localStorage.getItem(`${STORAGE_KEY_PREFIX}current_user_id`);
-    if (savedId) {
-      const found = users.find((u) => u.id === savedId);
-      if (found) return found;
+    try {
+      const savedId = localStorage.getItem(SESSION_USER_ID_KEY);
+      if (savedId) {
+        return INITIAL_USERS.find((u) => u.id === savedId) || null;
+      }
+    } catch {
+      // Ignore storage error
     }
-    // Directly go to login page by default
     return null;
   });
 
-  const [offers, setOffers] = useState<DriveOffer[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}offers`);
-    return saved ? JSON.parse(saved) : INITIAL_OFFERS;
-  });
+  const [offers, setOffers] = useState<DriveOffer[]>(INITIAL_OFFERS);
+  const [addMoneyRequests, setAddMoneyRequests] = useState<AddMoneyRequest[]>(INITIAL_ADD_MONEY_REQUESTS);
+  const [rechargeRequests, setRechargeRequests] = useState<RechargeRequest[]>(INITIAL_RECHARGE_REQUESTS);
+  const [nidOrders, setNidOrders] = useState<NidOrderRequest[]>(INITIAL_NID_ORDERS);
+  const [digitalServices, setDigitalServices] = useState<DigitalServiceItem[]>(INITIAL_DIGITAL_SERVICES);
+  const [notifications, setNotifications] = useState<AdminNotification[]>(INITIAL_NOTIFICATIONS);
+  const [settings, setSettings] = useState<AppSettings>(INITIAL_SETTINGS);
 
-  const [addMoneyRequests, setAddMoneyRequests] = useState<AddMoneyRequest[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}add_money`);
-    return saved ? JSON.parse(saved) : INITIAL_ADD_MONEY_REQUESTS;
-  });
-
-  const [rechargeRequests, setRechargeRequests] = useState<RechargeRequest[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}recharges`);
-    return saved ? JSON.parse(saved) : INITIAL_RECHARGE_REQUESTS;
-  });
-
-  const [nidOrders, setNidOrders] = useState<NidOrderRequest[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}nid_orders`);
-    return saved ? JSON.parse(saved) : INITIAL_NID_ORDERS;
-  });
-
-  const [digitalServices, setDigitalServices] = useState<DigitalServiceItem[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}digital_services`);
-    return saved ? JSON.parse(saved) : INITIAL_DIGITAL_SERVICES;
-  });
-
-  const [notifications, setNotifications] = useState<AdminNotification[]>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}notifications`);
-    return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
-  });
-
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem(`${STORAGE_KEY_PREFIX}settings`);
-    if (!saved) return INITIAL_SETTINGS;
-    try {
-      return { ...INITIAL_SETTINGS, ...JSON.parse(saved) };
-    } catch {
-      return INITIAL_SETTINGS;
-    }
-  });
-
-  // UI state: if restored user is verified admin, open admin panel automatically; otherwise user view
   const [currentView, setCurrentView] = useState<'user' | 'admin'>(() =>
     currentUser?.role === 'admin' && currentUser?.phone === '01844868379' ? 'admin' : 'user'
   );
@@ -131,130 +103,248 @@ export default function App() {
   const [dismissedPopupNoticeKey, setDismissedPopupNoticeKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
-  // Hydrate any large uploaded file blobs stored in IndexedDB on mount
-  useEffect(() => {
-    let mounted = true;
-    getAllFileBlobs().then((blobs) => {
-      if (!mounted || Object.keys(blobs).length === 0) return;
-      setNidOrders((prev) =>
-        prev.map((order) => {
-          const deliveryBlob = blobs[`delivery_${order.id}`];
-          const updatedCustomerFiles = order.customerFiles?.map((cf) => ({
-            ...cf,
-            dataUrl: cf.dataUrl || blobs[`customer_${cf.id}`] || '',
-          }));
-          return {
-            ...order,
-            pdfDataUrl: order.pdfDataUrl || deliveryBlob,
-            customerFiles: updatedCustomerFiles,
-          };
-        })
-      );
-    });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const seededRef = useRef(false);
 
-  // Sync to localStorage safely
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}users`, JSON.stringify(users));
-    } catch {
-      // Ignore storage quota issues
-    }
-  }, [users]);
-
+  // Save only current session user ID locally so reload remembers who is signed in
   useEffect(() => {
     try {
       if (currentUser) {
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}current_user_id`, currentUser.id);
+        localStorage.setItem(SESSION_USER_ID_KEY, currentUser.id);
       } else {
-        localStorage.removeItem(`${STORAGE_KEY_PREFIX}current_user_id`);
+        localStorage.removeItem(SESSION_USER_ID_KEY);
       }
     } catch {
-      // Ignore storage quota issues
+      // Ignore localStorage quota issues
     }
   }, [currentUser]);
 
+  // Keep currentUser always synced live with Firestore users snapshot (e.g., live wallet balance)
   useEffect(() => {
+    let savedId: string | null = null;
     try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}offers`, JSON.stringify(offers));
+      savedId = localStorage.getItem(SESSION_USER_ID_KEY);
     } catch {
-      // Ignore storage quota issues
+      savedId = null;
     }
-  }, [offers]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}add_money`, JSON.stringify(addMoneyRequests));
-    } catch {
-      // Ignore storage quota issues
-    }
-  }, [addMoneyRequests]);
+    const activeId = currentUser?.id || savedId;
+    if (!activeId) return;
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}recharges`, JSON.stringify(rechargeRequests));
-    } catch {
-      // Ignore storage quota issues
-    }
-  }, [rechargeRequests]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}nid_orders`, JSON.stringify(nidOrders));
-    } catch {
-      // If file base64 exceeds localStorage ~5MB quota, offload binary payloads to IndexedDB
-      nidOrders.forEach((order) => {
-        if (order.pdfDataUrl) {
-          saveFileBlob(`delivery_${order.id}`, order.pdfDataUrl);
+    const liveMatch = users.find((u) => u.id === activeId);
+    if (liveMatch) {
+      setCurrentUser((prev) => {
+        if (
+          prev &&
+          prev.id === liveMatch.id &&
+          prev.balance === liveMatch.balance &&
+          prev.name === liveMatch.name &&
+          prev.role === liveMatch.role &&
+          prev.email === liveMatch.email &&
+          prev.passwordHash === liveMatch.passwordHash
+        ) {
+          return prev;
         }
-        order.customerFiles?.forEach((cf) => {
-          if (cf.dataUrl) {
-            saveFileBlob(`customer_${cf.id}`, cf.dataUrl);
-          }
-        });
+        return liveMatch;
       });
+    }
+  }, [users, currentUser?.id]);
+
+  // Boot Firestore connection check, idempotent initial seeding, and live onSnapshot listeners
+  useEffect(() => {
+    void testConnection();
+
+    const seedCloudDatabaseIfEmpty = async () => {
+      if (seededRef.current) return;
+      seededRef.current = true;
+
       try {
-        const lightweightOrders = nidOrders.map((order) => ({
-          ...order,
-          pdfDataUrl: order.pdfDataUrl && order.pdfDataUrl.length > 50000 ? '' : order.pdfDataUrl,
-          customerFiles: order.customerFiles?.map((cf) => ({
-            ...cf,
-            dataUrl: cf.dataUrl.length > 50000 ? '' : cf.dataUrl,
-          })),
-        }));
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}nid_orders`, JSON.stringify(lightweightOrders));
-      } catch {
-        // Ignore if storage is completely full
+        // 1. Seed Settings doc if missing
+        const settingsRef = doc(db, 'settings', 'app');
+        const settingsSnap = await getDoc(settingsRef);
+        if (!settingsSnap.exists()) {
+          await setDoc(settingsRef, sanitizeForFirestore(INITIAL_SETTINGS));
+        }
+
+        // 2. Ensure core users exist in Firestore (Admin & Demo Customer + Initial seed if empty)
+        const usersSnap = await getDocs(collection(db, 'portal_users'));
+        const existingUserIds = new Set(usersSnap.docs.map((d) => d.id));
+        if (usersSnap.empty) {
+          for (const u of INITIAL_USERS) {
+            const docData = await toCloudUserDoc(u);
+            await setDoc(doc(db, 'portal_users', u.id), docData);
+          }
+        } else {
+          for (const coreUser of INITIAL_USERS.slice(0, 2)) {
+            if (!existingUserIds.has(coreUser.id)) {
+              const docData = await toCloudUserDoc(coreUser);
+              await setDoc(doc(db, 'portal_users', coreUser.id), docData);
+            }
+          }
+        }
+
+        // 3. Seed Offers if empty
+        const offersSnap = await getDocs(collection(db, 'offers'));
+        if (offersSnap.empty) {
+          for (const off of INITIAL_OFFERS) {
+            await setDoc(doc(db, 'offers', off.id), sanitizeForFirestore(off));
+          }
+        }
+
+        // 4. Seed Digital Services if empty
+        const servicesSnap = await getDocs(collection(db, 'digital_services'));
+        if (servicesSnap.empty) {
+          for (const srv of INITIAL_DIGITAL_SERVICES) {
+            await setDoc(doc(db, 'digital_services', srv.id), sanitizeForFirestore(srv));
+          }
+        }
+
+        // 5. Seed Initial sample history/notifications only if completely fresh DB
+        const addMoneySnap = await getDocs(collection(db, 'add_money_requests'));
+        if (addMoneySnap.empty && usersSnap.empty) {
+          for (const am of INITIAL_ADD_MONEY_REQUESTS) {
+            await setDoc(doc(db, 'add_money_requests', am.id), sanitizeForFirestore(am));
+          }
+        }
+
+        const rechargeSnap = await getDocs(collection(db, 'recharge_requests'));
+        if (rechargeSnap.empty && usersSnap.empty) {
+          for (const rc of INITIAL_RECHARGE_REQUESTS) {
+            await setDoc(doc(db, 'recharge_requests', rc.id), sanitizeForFirestore(rc));
+          }
+        }
+
+        const nidSnap = await getDocs(collection(db, 'nid_orders'));
+        if (nidSnap.empty && usersSnap.empty) {
+          for (const ord of INITIAL_NID_ORDERS) {
+            await setDoc(doc(db, 'nid_orders', ord.id), sanitizeForFirestore(ord));
+          }
+        }
+
+        const notifSnap = await getDocs(collection(db, 'admin_notifications'));
+        if (notifSnap.empty && usersSnap.empty) {
+          for (const n of INITIAL_NOTIFICATIONS) {
+            await setDoc(doc(db, 'admin_notifications', n.id), sanitizeForFirestore(n));
+          }
+        }
+      } catch (error) {
+        console.error('Initial Firestore seed error:', error);
       }
-    }
-  }, [nidOrders]);
+    };
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}digital_services`, JSON.stringify(digitalServices));
-    } catch {
-      // Ignore storage quota issues
-    }
-  }, [digitalServices]);
+    void seedCloudDatabaseIfEmpty();
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}notifications`, JSON.stringify(notifications));
-    } catch {
-      // Ignore storage quota issues
-    }
-  }, [notifications]);
+    const unsubSettings = onSnapshot(
+      doc(db, 'settings', 'app'),
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as Partial<AppSettings>;
+          setSettings({
+            ...INITIAL_SETTINGS,
+            ...data,
+            paymentNumbers: {
+              ...INITIAL_SETTINGS.paymentNumbers,
+              ...(data.paymentNumbers || {}),
+            },
+            nidFees: {
+              ...INITIAL_SETTINGS.nidFees,
+              ...(data.nidFees || {}),
+            },
+            notifications: {
+              ...INITIAL_SETTINGS.notifications,
+              ...(data.notifications || {}),
+            },
+          });
+        }
+      },
+      (error) => handleFirestoreError(error, OperationType.GET, 'settings/app')
+    );
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}settings`, JSON.stringify(settings));
-    } catch {
-      // Ignore storage quota issues
-    }
-  }, [settings]);
+    const unsubUsers = onSnapshot(
+      collection(db, 'portal_users'),
+      (snap) => {
+        const list = snap.docs.map((d) => d.data() as User);
+        if (list.length > 0) {
+          list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+          setUsers(list);
+        }
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'portal_users')
+    );
+
+    const unsubOffers = onSnapshot(
+      collection(db, 'offers'),
+      (snap) => {
+        const list = snap.docs.map((d) => d.data() as DriveOffer);
+        list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        setOffers(list);
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'offers')
+    );
+
+    const unsubServices = onSnapshot(
+      collection(db, 'digital_services'),
+      (snap) => {
+        const list = snap.docs.map((d) => d.data() as DigitalServiceItem);
+        setDigitalServices(list);
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'digital_services')
+    );
+
+    const unsubAddMoney = onSnapshot(
+      collection(db, 'add_money_requests'),
+      (snap) => {
+        const list = snap.docs
+          .map((d) => d.data() as AddMoneyRequest)
+          .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        setAddMoneyRequests(list);
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'add_money_requests')
+    );
+
+    const unsubRecharges = onSnapshot(
+      collection(db, 'recharge_requests'),
+      (snap) => {
+        const list = snap.docs
+          .map((d) => d.data() as RechargeRequest)
+          .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        setRechargeRequests(list);
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'recharge_requests')
+    );
+
+    const unsubNidOrders = onSnapshot(
+      collection(db, 'nid_orders'),
+      (snap) => {
+        const list = snap.docs
+          .map((d) => d.data() as NidOrderRequest)
+          .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        setNidOrders(list);
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'nid_orders')
+    );
+
+    const unsubNotifs = onSnapshot(
+      collection(db, 'admin_notifications'),
+      (snap) => {
+        const list = snap.docs
+          .map((d) => d.data() as AdminNotification)
+          .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        setNotifications(list);
+      },
+      (error) => handleFirestoreError(error, OperationType.LIST, 'admin_notifications')
+    );
+
+    return () => {
+      unsubSettings();
+      unsubUsers();
+      unsubOffers();
+      unsubServices();
+      unsubAddMoney();
+      unsubRecharges();
+      unsubNidOrders();
+      unsubNotifs();
+    };
+  }, []);
 
   // Toast helper
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -265,10 +355,17 @@ export default function App() {
   };
 
   // Auth handlers
-  const handleLogin = (user: User, openAdmin: boolean = false) => {
-    if (!users.some((u) => u.id === user.id)) {
-      setUsers((prev) => [user, ...prev]);
+  const handleLogin = async (user: User, openAdmin: boolean = false) => {
+    const existsInCloud = users.some((u) => u.id === user.id);
+    if (!existsInCloud) {
+      try {
+        const cloudDoc = await toCloudUserDoc(user);
+        await setDoc(doc(db, 'portal_users', user.id), cloudDoc);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, `portal_users/${user.id}`);
+      }
     }
+
     setCurrentUser(user);
     if (openAdmin || user.role === 'admin' || user.phone === '01844868379') {
       setCurrentView('admin');
@@ -297,8 +394,8 @@ export default function App() {
     }
   };
 
-  // Central Admin Notification Dispatcher with Sound & Browser Push
-  const triggerAdminNotification = ({
+  // Central Admin Notification Dispatcher with Sound, Browser Push & Cloud Sync
+  const triggerAdminNotification = async ({
     type,
     title,
     message,
@@ -317,13 +414,12 @@ export default function App() {
   }) => {
     const notifConfig = settings.notifications;
 
-    // Filter check based on admin toggles
     if (type === 'recharge' && !notifConfig.notifyOnRecharge) return;
     if (type === 'drive_offer' && !notifConfig.notifyOnDriveOffer) return;
     if (type === 'nid_order' && !notifConfig.notifyOnNidOrder) return;
     if (type === 'add_money' && !notifConfig.notifyOnAddMoney) return;
 
-    const newNotif: AdminNotification = {
+    const newNotif: AdminNotification = sanitizeForFirestore({
       id: `notif-${Date.now()}`,
       type,
       title,
@@ -334,23 +430,24 @@ export default function App() {
       targetRefId,
       timestamp: new Date().toISOString(),
       read: false,
-    };
+    });
 
-    setNotifications((prev) => [newNotif, ...prev]);
+    try {
+      await setDoc(doc(db, 'admin_notifications', newNotif.id), newNotif);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `admin_notifications/${newNotif.id}`);
+    }
 
-    // Play synthesized Web Audio chime alert
     if (notifConfig.soundEnabled) {
       playNotificationSound();
     }
-
-    // Trigger browser system notification
     if (notifConfig.browserNotificationsEnabled) {
       sendBrowserNotification(title, message);
     }
   };
 
   // Recharge Submission
-  const handleRechargeSubmit = ({
+  const handleRechargeSubmit = async ({
     operator,
     targetPhone,
     simType,
@@ -369,12 +466,7 @@ export default function App() {
     }
 
     const updatedBalance = currentUser.balance - amount;
-    const updatedUser = { ...currentUser, balance: updatedBalance };
-
-    setCurrentUser(updatedUser);
-    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
-
-    const newReq: RechargeRequest = {
+    const newReq: RechargeRequest = sanitizeForFirestore({
       id: `rc-${Date.now()}`,
       userId: currentUser.id,
       userName: currentUser.name,
@@ -387,14 +479,24 @@ export default function App() {
       status: 'pending',
       timestamp: new Date().toISOString(),
       trxId: generateTrxId(),
-    };
+    });
 
-    setRechargeRequests((prev) => [newReq, ...prev]);
+    try {
+      await updateDoc(doc(db, 'portal_users', currentUser.id), { balance: updatedBalance });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `portal_users/${currentUser.id}`);
+    }
+
+    try {
+      await setDoc(doc(db, 'recharge_requests', newReq.id), newReq);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `recharge_requests/${newReq.id}`);
+    }
+
     showToast(`${formatTaka(amount)} রিচার্জ রিকোয়েস্ট জমা হয়েছে!`, 'success');
     setSelectedReceipt(newReq);
 
-    // Notify Admin with Sound & Push
-    triggerAdminNotification({
+    await triggerAdminNotification({
       type: 'recharge',
       title: 'নতুন মোবাইল রিচার্জ রিকোয়েস্ট!',
       message: `${currentUser.name} (${currentUser.phone}) - ${operator} (${simType}) নাম্বারে ৳${amount} রিচার্জ চেয়েছেন।`,
@@ -406,7 +508,7 @@ export default function App() {
   };
 
   // Drive Offer Purchase
-  const handleBuyOffer = (
+  const handleBuyOffer = async (
     offer: DriveOffer,
     targetPhone: string,
     simType: SimType,
@@ -420,12 +522,7 @@ export default function App() {
     }
 
     const updatedBalance = currentUser.balance - offer.offerPrice;
-    const updatedUser = { ...currentUser, balance: updatedBalance };
-
-    setCurrentUser(updatedUser);
-    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
-
-    const newReq: RechargeRequest = {
+    const newReq: RechargeRequest = sanitizeForFirestore({
       id: `dr-${Date.now()}`,
       userId: currentUser.id,
       userName: currentUser.name,
@@ -442,14 +539,24 @@ export default function App() {
       status: 'pending',
       timestamp: new Date().toISOString(),
       trxId: generateTrxId(),
-    };
+    });
 
-    setRechargeRequests((prev) => [newReq, ...prev]);
+    try {
+      await updateDoc(doc(db, 'portal_users', currentUser.id), { balance: updatedBalance });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `portal_users/${currentUser.id}`);
+    }
+
+    try {
+      await setDoc(doc(db, 'recharge_requests', newReq.id), newReq);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `recharge_requests/${newReq.id}`);
+    }
+
     showToast('অফার অর্ডার সফল হয়েছে! এডমিন ম্যানুয়ালি ভেরিফাই করে চালু করে দেবেন।', 'success');
     setSelectedReceipt(newReq);
 
-    // Notify Admin with Sound & Push
-    triggerAdminNotification({
+    await triggerAdminNotification({
       type: 'drive_offer',
       title: 'নতুন ড্রাইভ অফার অর্ডার!',
       message: `${currentUser.name} (${currentUser.phone}) - ${offer.title} (${formatTaka(offer.offerPrice)}) অর্ডার করেছেন।`,
@@ -460,8 +567,8 @@ export default function App() {
     });
   };
 
-  // Digital & NID Services Order Submission
-  const handleOrderNidService = (data: {
+  // Digital & NID Services Order Submission (with cloud chunked file attachments)
+  const handleOrderNidService = async (data: {
     serviceId: string;
     serviceTitle: string;
     fee: number;
@@ -480,14 +587,37 @@ export default function App() {
       return;
     }
 
+    const orderId = `nid-${Date.now()}`;
+    const cloudCustomerFiles: UploadedFileAttachment[] | undefined = data.customerFiles?.length
+      ? []
+      : undefined;
+
+    if (data.customerFiles?.length && cloudCustomerFiles) {
+      for (const cf of data.customerFiles) {
+        const fid = cf.fileId || cf.id;
+        if (cf.dataUrl) {
+          await uploadCloudFile({
+            fileId: fid,
+            fileName: cf.fileName,
+            fileSize: cf.fileSize,
+            fileType: cf.fileType,
+            dataUrl: cf.dataUrl,
+          });
+        }
+        cloudCustomerFiles.push({
+          id: cf.id,
+          fileId: fid,
+          fileName: cf.fileName,
+          fileSize: cf.fileSize,
+          fileType: cf.fileType,
+        });
+      }
+    }
+
     const updatedBalance = currentUser.balance - data.fee;
-    const updatedUser = { ...currentUser, balance: updatedBalance };
 
-    setCurrentUser(updatedUser);
-    setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updatedUser : u)));
-
-    const newOrder: NidOrderRequest = {
-      id: `nid-${Date.now()}`,
+    const newOrder: NidOrderRequest = sanitizeForFirestore({
+      id: orderId,
       userId: currentUser.id,
       userName: currentUser.name,
       userPhone: currentUser.phone,
@@ -501,24 +631,31 @@ export default function App() {
       dateOfBirth: data.dateOfBirth,
       upazila: data.upazila,
       district: data.district,
-      customerFiles: data.customerFiles,
+      customerFiles: cloudCustomerFiles,
       status: 'pending',
       timestamp: new Date().toISOString(),
       trxId: generateTrxId(),
-    };
-
-    data.customerFiles?.forEach((cf) => {
-      if (cf.dataUrl) {
-        saveFileBlob(`customer_${cf.id}`, cf.dataUrl);
-      }
     });
 
-    setNidOrders((prev) => [newOrder, ...prev]);
-    showToast(`${data.serviceTitle} সফলভাবে সাবমিট হয়েছে! ফি: ${formatTaka(data.fee)}`, 'success');
-    setSelectedReceipt(newOrder);
+    try {
+      await updateDoc(doc(db, 'portal_users', currentUser.id), { balance: updatedBalance });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `portal_users/${currentUser.id}`);
+    }
 
-    // Notify Admin with Sound & Push
-    triggerAdminNotification({
+    try {
+      await setDoc(doc(db, 'nid_orders', newOrder.id), newOrder);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `nid_orders/${newOrder.id}`);
+    }
+
+    showToast(`${data.serviceTitle} সফলভাবে সাবমিট হয়েছে! ফি: ${formatTaka(data.fee)}`, 'success');
+    setSelectedReceipt({
+      ...newOrder,
+      customerFiles: data.customerFiles || cloudCustomerFiles,
+    });
+
+    await triggerAdminNotification({
       type: 'nid_order',
       title: `নতুন ${data.serviceTitle} অর্ডার!`,
       message: `${currentUser.name} (${currentUser.phone}) - ${data.serviceTitle} সাবমিট করেছেন${data.customerFiles?.length ? ` (${data.customerFiles.length} টি ফাইলসহ)` : ''}।`,
@@ -529,8 +666,8 @@ export default function App() {
     });
   };
 
-  // Admin Complete NID / Digital Service Order with File / PDF Upload
-  const handleCompleteNidOrder = (
+  // Admin Complete NID / Digital Service Order with Cloud File Upload
+  const handleCompleteNidOrder = async (
     orderId: string,
     deliveryNote?: string,
     fileUrl?: string,
@@ -538,50 +675,65 @@ export default function App() {
     pdfFileName?: string,
     pdfFileSize?: string
   ) => {
-    if (pdfDataUrl) {
-      saveFileBlob(`delivery_${orderId}`, pdfDataUrl);
+    const existingOrder = nidOrders.find((o) => o.id === orderId);
+    const pdfFileId = pdfDataUrl
+      ? `delivery_${orderId}_${Date.now()}`
+      : existingOrder?.pdfFileId;
+
+    if (pdfDataUrl && pdfFileId) {
+      await uploadCloudFile({
+        fileId: pdfFileId,
+        fileName: pdfFileName || existingOrder?.pdfFileName || 'document.pdf',
+        fileSize: pdfFileSize || existingOrder?.pdfFileSize,
+        dataUrl: pdfDataUrl,
+      });
     }
-    setNidOrders((prev) =>
-      prev.map((o) =>
-        o.id === orderId
-          ? {
-              ...o,
-              status: 'completed',
-              completedAt: new Date().toISOString(),
-              deliveryNote: deliveryNote || 'আপনার সার্ভিস ফাইল প্রস্তুত।',
-              deliveryFileUrl: fileUrl,
-              pdfDataUrl: pdfDataUrl,
-              pdfFileName: pdfFileName,
-              pdfFileSize: pdfFileSize,
-            }
-          : o
-      )
-    );
-    showToast('অর্ডার সফল ও ফাইল ডেলিভারি সম্পন্ন হয়েছে!', 'success');
+
+    const updatePayload = sanitizeForFirestore({
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      deliveryNote: deliveryNote || 'আপনার সার্ভিস ফাইল প্রস্তুত।',
+      deliveryFileUrl: fileUrl || '#',
+      pdfFileId,
+      pdfFileName: pdfFileName || existingOrder?.pdfFileName,
+      pdfFileSize: pdfFileSize || existingOrder?.pdfFileSize,
+      pdfDataUrl: pdfDataUrl
+        ? pdfDataUrl.length <= 50000
+          ? pdfDataUrl
+          : ''
+        : existingOrder?.pdfDataUrl || '',
+    });
+
+    try {
+      await updateDoc(doc(db, 'nid_orders', orderId), updatePayload);
+      showToast('অর্ডার সফল ও ফাইল ডেলিভারি সম্পন্ন হয়েছে!', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `nid_orders/${orderId}`);
+    }
   };
 
   // Admin Reject & Refund NID Order
-  const handleRejectNidOrder = (orderId: string, refund: boolean) => {
+  const handleRejectNidOrder = async (orderId: string, refund: boolean) => {
     const order = nidOrders.find((o) => o.id === orderId);
     if (!order) return;
 
-    setNidOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: 'rejected' } : o))
-    );
+    try {
+      await updateDoc(doc(db, 'nid_orders', orderId), { status: 'rejected' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `nid_orders/${orderId}`);
+    }
 
     if (refund) {
-      setUsers((prev) =>
-        prev.map((u) => {
-          if (u.id === order.userId) {
-            const newBal = u.balance + order.fee;
-            if (currentUser?.id === u.id) {
-              setCurrentUser({ ...u, balance: newBal });
-            }
-            return { ...u, balance: newBal };
-          }
-          return u;
-        })
-      );
+      const targetUser = users.find((u) => u.id === order.userId);
+      if (targetUser) {
+        try {
+          await updateDoc(doc(db, 'portal_users', targetUser.id), {
+            balance: targetUser.balance + order.fee,
+          });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.UPDATE, `portal_users/${targetUser.id}`);
+        }
+      }
       showToast(`অর্ডার বাতিল ও ৳${order.fee} গ্রাহকের ওয়ালেটে ফেরত দেওয়া হয়েছে।`, 'info');
     } else {
       showToast('অর্ডার বাতিল করা হয়েছে।', 'info');
@@ -589,7 +741,7 @@ export default function App() {
   };
 
   // Add Money Submission
-  const handleAddMoneySubmit = ({
+  const handleAddMoneySubmit = async ({
     method,
     senderNumber,
     amount,
@@ -602,7 +754,7 @@ export default function App() {
   }) => {
     if (!currentUser) return;
 
-    const newReq: AddMoneyRequest = {
+    const newReq: AddMoneyRequest = sanitizeForFirestore({
       id: `am-${Date.now()}`,
       userId: currentUser.id,
       userName: currentUser.name,
@@ -613,14 +765,18 @@ export default function App() {
       trxId,
       status: 'pending',
       timestamp: new Date().toISOString(),
-    };
+    });
 
-    setAddMoneyRequests((prev) => [newReq, ...prev]);
+    try {
+      await setDoc(doc(db, 'add_money_requests', newReq.id), newReq);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `add_money_requests/${newReq.id}`);
+    }
+
     showToast('অ্যাড মানি রিকোয়েস্ট সফল হয়েছে! এডমিন ভেরিফাই করে টাকা যোগ করবেন।', 'success');
     setSelectedReceipt(newReq);
 
-    // Notify Admin with Sound & Push
-    triggerAdminNotification({
+    await triggerAdminNotification({
       type: 'add_money',
       title: 'নতুন অ্যাড মানি রিকোয়েস্ট!',
       message: `${currentUser.name} (${currentUser.phone}) - ${method} দিয়ে ৳${amount} যোগ করার রিকোয়েস্ট পাঠিয়েছেন (TrxID: ${trxId})।`,
@@ -632,68 +788,75 @@ export default function App() {
   };
 
   // Admin Actions: Approve Add Money
-  const handleApproveAddMoney = (requestId: string) => {
+  const handleApproveAddMoney = async (requestId: string) => {
     const req = addMoneyRequests.find((r) => r.id === requestId);
     if (!req) return;
 
-    setAddMoneyRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
-    );
+    try {
+      await updateDoc(doc(db, 'add_money_requests', requestId), { status: 'approved' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `add_money_requests/${requestId}`);
+    }
 
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === req.userId) {
-          const newBal = u.balance + req.amount;
-          if (currentUser?.id === u.id) {
-            setCurrentUser({ ...u, balance: newBal });
-          }
-          return { ...u, balance: newBal };
-        }
-        return u;
-      })
-    );
+    const targetUser = users.find((u) => u.id === req.userId);
+    if (targetUser) {
+      try {
+        await updateDoc(doc(db, 'portal_users', targetUser.id), {
+          balance: targetUser.balance + req.amount,
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, `portal_users/${targetUser.id}`);
+      }
+    }
 
     showToast(`৳${req.amount} ব্যালেন্স সফলভাবে যোগ করা হয়েছে!`, 'success');
   };
 
   // Admin Actions: Reject Add Money
-  const handleRejectAddMoney = (requestId: string) => {
-    setAddMoneyRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r))
-    );
-    showToast('অ্যাড মানি রিকোয়েস্ট বাতিল করা হয়েছে।', 'info');
+  const handleRejectAddMoney = async (requestId: string) => {
+    try {
+      await updateDoc(doc(db, 'add_money_requests', requestId), { status: 'rejected' });
+      showToast('অ্যাড মানি রিকোয়েস্ট বাতিল করা হয়েছে।', 'info');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `add_money_requests/${requestId}`);
+    }
   };
 
   // Admin Actions: Complete Recharge
-  const handleCompleteRecharge = (requestId: string) => {
-    setRechargeRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'completed' } : r))
-    );
-    showToast('রিচার্জ সফল হিসেবে চিহ্নিত হয়েছে!', 'success');
+  const handleCompleteRecharge = async (requestId: string) => {
+    try {
+      await updateDoc(doc(db, 'recharge_requests', requestId), {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      });
+      showToast('রিচার্জ সফল হিসেবে চিহ্নিত হয়েছে!', 'success');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `recharge_requests/${requestId}`);
+    }
   };
 
   // Admin Actions: Reject & Refund Recharge
-  const handleRejectRecharge = (requestId: string, refund: boolean) => {
+  const handleRejectRecharge = async (requestId: string, refund: boolean) => {
     const req = rechargeRequests.find((r) => r.id === requestId);
     if (!req) return;
 
-    setRechargeRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r))
-    );
+    try {
+      await updateDoc(doc(db, 'recharge_requests', requestId), { status: 'rejected' });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `recharge_requests/${requestId}`);
+    }
 
     if (refund) {
-      setUsers((prev) =>
-        prev.map((u) => {
-          if (u.id === req.userId) {
-            const newBal = u.balance + req.amount;
-            if (currentUser?.id === u.id) {
-              setCurrentUser({ ...u, balance: newBal });
-            }
-            return { ...u, balance: newBal };
-          }
-          return u;
-        })
-      );
+      const targetUser = users.find((u) => u.id === req.userId);
+      if (targetUser) {
+        try {
+          await updateDoc(doc(db, 'portal_users', targetUser.id), {
+            balance: targetUser.balance + req.amount,
+          });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.UPDATE, `portal_users/${targetUser.id}`);
+        }
+      }
       showToast(`রিচার্জ বাতিল ও ৳${req.amount} গ্রাহকের ওয়ালেটে ফেরত দেওয়া হয়েছে।`, 'info');
     } else {
       showToast('রিচার্জ বাতিল করা হয়েছে।', 'info');
@@ -701,117 +864,201 @@ export default function App() {
   };
 
   // Admin Actions: Add Offer
-  const handleAddOffer = (newOfferData: Omit<DriveOffer, 'id'>) => {
-    const offer: DriveOffer = {
+  const handleAddOffer = async (newOfferData: Omit<DriveOffer, 'id'>) => {
+    const offer: DriveOffer = sanitizeForFirestore({
       ...newOfferData,
       id: `off-${Date.now()}`,
-    };
-    setOffers((prev) => [offer, ...prev]);
-    showToast('নতুন ড্রাইভ অফার সফলভাবে যুক্ত হয়েছে!');
+      createdAt: newOfferData.createdAt || new Date().toISOString(),
+    });
+    try {
+      await setDoc(doc(db, 'offers', offer.id), offer);
+      showToast('নতুন ড্রাইভ অফার সফলভাবে যুক্ত হয়েছে!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `offers/${offer.id}`);
+    }
   };
 
   // Admin Actions: Update Offer
-  const handleUpdateOffer = (offerId: string, updated: Partial<DriveOffer>) => {
-    setOffers((prev) =>
-      prev.map((o) => (o.id === offerId ? { ...o, ...updated } : o))
-    );
-    showToast('অফার আপডেট হয়েছে!');
+  const handleUpdateOffer = async (offerId: string, updated: Partial<DriveOffer>) => {
+    const clean = sanitizeForFirestore(updated);
+    try {
+      await updateDoc(doc(db, 'offers', offerId), clean);
+      showToast('অফার আপডেট হয়েছে!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `offers/${offerId}`);
+    }
   };
 
   // Admin Actions: Delete Offer
-  const handleDeleteOffer = (offerId: string) => {
-    setOffers((prev) => prev.filter((o) => o.id !== offerId));
-    showToast('অফার মুছে ফেলা হয়েছে।', 'info');
+  const handleDeleteOffer = async (offerId: string) => {
+    try {
+      await deleteDoc(doc(db, 'offers', offerId));
+      showToast('অফার মুছে ফেলা হয়েছে।', 'info');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `offers/${offerId}`);
+    }
   };
 
   // Admin Actions: Digital Services Management
-  const handleAddDigitalService = (serviceData: Omit<DigitalServiceItem, 'id'>) => {
-    const newService: DigitalServiceItem = {
+  const handleAddDigitalService = async (serviceData: Omit<DigitalServiceItem, 'id'>) => {
+    const newService: DigitalServiceItem = sanitizeForFirestore({
       ...serviceData,
       id: `srv-${Date.now()}`,
-    };
-    setDigitalServices((prev) => [...prev, newService]);
-    showToast(`নতুন সেবা "${newService.title}" সফলভাবে যোগ করা হয়েছে!`);
+      createdAt: serviceData.createdAt || new Date().toISOString(),
+    });
+    try {
+      await setDoc(doc(db, 'digital_services', newService.id), newService);
+      showToast(`নতুন সেবা "${newService.title}" সফলভাবে যোগ করা হয়েছে!`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `digital_services/${newService.id}`);
+    }
   };
 
-  const handleUpdateDigitalService = (serviceId: string, updated: Partial<DigitalServiceItem>) => {
-    setDigitalServices((prev) =>
-      prev.map((s) => (s.id === serviceId ? { ...s, ...updated } : s))
-    );
-    showToast('ডিজিটাল সেবা সফলভাবে আপডেট হয়েছে!');
+  const handleUpdateDigitalService = async (
+    serviceId: string,
+    updated: Partial<DigitalServiceItem>
+  ) => {
+    const clean = sanitizeForFirestore(updated);
+    try {
+      await updateDoc(doc(db, 'digital_services', serviceId), clean);
+      showToast('ডিজিটাল সেবা সফলভাবে আপডেট হয়েছে!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `digital_services/${serviceId}`);
+    }
   };
 
-  const handleDeleteDigitalService = (serviceId: string) => {
-    setDigitalServices((prev) => prev.filter((s) => s.id !== serviceId));
-    showToast('ডিজিটাল সেবা মুছে ফেলা হয়েছে।', 'info');
+  const handleDeleteDigitalService = async (serviceId: string) => {
+    try {
+      await deleteDoc(doc(db, 'digital_services', serviceId));
+      showToast('ডিজিটাল সেবা মুছে ফেলা হয়েছে।', 'info');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `digital_services/${serviceId}`);
+    }
   };
 
   // Admin Actions: Manual Balance Adjustment
-  const handleAdjustUserBalance = (userId: string, deltaAmount: number, reason: string) => {
-    setUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === userId) {
-          const newBal = Math.max(0, u.balance + deltaAmount);
-          if (currentUser?.id === u.id) {
-            setCurrentUser({ ...u, balance: newBal });
-          }
-          return { ...u, balance: newBal };
-        }
-        return u;
-      })
-    );
+  const handleAdjustUserBalance = async (userId: string, deltaAmount: number, _reason: string) => {
+    const targetUser = users.find((u) => u.id === userId);
+    if (!targetUser) return;
+    const newBal = Math.max(0, targetUser.balance + deltaAmount);
 
-    showToast(`গ্রাহক ব্যালেন্স ${deltaAmount >= 0 ? '+' : ''}${formatTaka(deltaAmount)} সমন্বয় করা হয়েছে!`);
+    try {
+      await updateDoc(doc(db, 'portal_users', userId), { balance: newBal });
+      showToast(`গ্রাহক ব্যালেন্স ${deltaAmount >= 0 ? '+' : ''}${formatTaka(deltaAmount)} সমন্বয় করা হয়েছে!`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `portal_users/${userId}`);
+    }
   };
 
   // Admin Actions: Update Settings
-  const handleUpdateSettings = (newSettings: Partial<AppSettings>) => {
-    setSettings((prev) => ({ ...prev, ...newSettings }));
-    showToast('সিস্টেম সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
+  const handleUpdateSettings = async (newSettings: Partial<AppSettings>) => {
+    const merged: AppSettings = sanitizeForFirestore({
+      ...settings,
+      ...newSettings,
+      paymentNumbers: {
+        ...settings.paymentNumbers,
+        ...(newSettings.paymentNumbers || {}),
+      },
+      nidFees: {
+        ...settings.nidFees,
+        ...(newSettings.nidFees || {}),
+      },
+      notifications: {
+        ...settings.notifications,
+        ...(newSettings.notifications || {}),
+      },
+    });
+    setSettings(merged);
+    try {
+      await setDoc(doc(db, 'settings', 'app'), merged);
+      showToast('সিস্টেম সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'settings/app');
+    }
   };
 
   // Notification Management Actions
-  const handleMarkAllNotificationsAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    showToast('সব নোটিফিকেশন পড়া হয়েছে হিসেবে চিহ্নিত করা হয়েছে।');
+  const handleMarkAllNotificationsAsRead = async () => {
+    const unread = notifications.filter((n) => !n.read);
+    try {
+      await Promise.all(
+        unread.map((n) => updateDoc(doc(db, 'admin_notifications', n.id), { read: true }))
+      );
+      showToast('সব নোটিফিকেশন পড়া হয়েছে হিসেবে চিহ্নিত করা হয়েছে।');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'admin_notifications');
+    }
   };
 
-  const handleMarkNotificationAsRead = (id: string) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  const handleMarkNotificationAsRead = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'admin_notifications', id), { read: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `admin_notifications/${id}`);
+    }
   };
 
-  const handleDeleteNotification = (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  const handleDeleteNotification = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'admin_notifications', id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `admin_notifications/${id}`);
+    }
   };
 
-  const handleClearAllNotifications = () => {
-    setNotifications([]);
-    showToast('সকল নোটিফিকেশন মুছে ফেলা হয়েছে।', 'info');
+  const handleClearAllNotifications = async () => {
+    try {
+      await Promise.all(
+        notifications.map((n) => deleteDoc(doc(db, 'admin_notifications', n.id)))
+      );
+      showToast('সকল নোটিফিকেশন মুছে ফেলা হয়েছে।', 'info');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, 'admin_notifications');
+    }
   };
 
   const handleUpdateNotificationSettings = (newNotifSettings: Partial<NotificationSettings>) => {
-    setSettings((prev) => ({
-      ...prev,
+    void handleUpdateSettings({
       notifications: {
-        ...prev.notifications,
+        ...settings.notifications,
         ...newNotifSettings,
       },
-    }));
-    showToast('নোটিফিকেশন অপশন আপডেট হয়েছে!');
+    });
   };
 
-  // Reset to initial demo data
-  const handleResetDemoData = () => {
-    setUsers(INITIAL_USERS);
-    setCurrentUser(INITIAL_USERS[0]);
-    setOffers(INITIAL_OFFERS);
-    setAddMoneyRequests(INITIAL_ADD_MONEY_REQUESTS);
-    setRechargeRequests(INITIAL_RECHARGE_REQUESTS);
-    setNidOrders(INITIAL_NID_ORDERS);
-    setDigitalServices(INITIAL_DIGITAL_SERVICES);
-    setNotifications(INITIAL_NOTIFICATIONS);
-    setSettings(INITIAL_SETTINGS);
-    showToast('ডেমো ডেটা সফলভাবে রিস্টোর করা হয়েছে!');
+  // Reset demo data cleanly in Firestore
+  const handleResetDemoData = async () => {
+    try {
+      await setDoc(doc(db, 'settings', 'app'), sanitizeForFirestore(INITIAL_SETTINGS));
+
+      for (const u of INITIAL_USERS) {
+        const existingUser = users.find((ex) => ex.id === u.id);
+        const cloudDoc = await toCloudUserDoc(u);
+        if (existingUser) {
+          await updateDoc(doc(db, 'portal_users', u.id), {
+            name: cloudDoc.name,
+            email: cloudDoc.email,
+            balance: cloudDoc.balance,
+            role: cloudDoc.role,
+            passwordHash: cloudDoc.passwordHash,
+          });
+        } else {
+          await setDoc(doc(db, 'portal_users', u.id), cloudDoc);
+        }
+      }
+
+      for (const off of INITIAL_OFFERS) {
+        await setDoc(doc(db, 'offers', off.id), sanitizeForFirestore(off));
+      }
+
+      for (const srv of INITIAL_DIGITAL_SERVICES) {
+        await setDoc(doc(db, 'digital_services', srv.id), sanitizeForFirestore(srv));
+      }
+
+      showToast('ডেমো ডেটা সফলভাবে রিস্টোর করা হয়েছে!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'reset_demo_data');
+    }
   };
 
   // Filter requests for currently logged-in user
@@ -845,7 +1092,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100/90 text-slate-800 flex flex-col selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen w-full overflow-x-hidden bg-slate-100/90 text-slate-800 flex flex-col selection:bg-indigo-500 selection:text-white">
       
       {/* 1. Global Navbar */}
       <Navbar

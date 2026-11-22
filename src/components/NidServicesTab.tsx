@@ -31,7 +31,8 @@ import {
   UploadedFileAttachment,
 } from '../types/telecom';
 import { formatTaka, formatDateTime } from '../utils/telecomUtils';
-import { triggerFileDownload, readFileAsDataUrl } from '../utils/pdfHelper';
+import { readFileAsDataUrl } from '../utils/pdfHelper';
+import { downloadOrderFile } from '../utils/cloudFileService';
 
 interface NidServicesTabProps {
   currentUser: User;
@@ -114,8 +115,10 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
       const uploaded: UploadedFileAttachment[] = [];
       for (const file of filesArray) {
         const res = await readFileAsDataUrl(file);
+        const uid = `cfile-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
         uploaded.push({
-          id: `cfile-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          id: uid,
+          fileId: uid,
           fileName: res.fileName,
           fileSize: res.fileSize,
           fileType: res.fileType,
@@ -661,14 +664,17 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
               const isPending = order.status === 'pending';
               const isRejected = order.status === 'rejected';
 
-              const handleDownloadPdf = () => {
-                if (order.pdfDataUrl) {
-                  triggerFileDownload(
-                    order.pdfDataUrl,
-                    order.pdfFileName || `${order.serviceTitle}_${order.nidNumber}.pdf`
-                  );
-                } else if (order.deliveryFileUrl && order.deliveryFileUrl !== '#') {
-                  window.open(order.deliveryFileUrl, '_blank');
+              const handleDownloadPdf = async () => {
+                if (order.pdfDataUrl || order.pdfFileId || (order.deliveryFileUrl && order.deliveryFileUrl !== '#')) {
+                  const downloaded = await downloadOrderFile({
+                    fileId: order.pdfFileId || `delivery_${order.id}`,
+                    fileName: order.pdfFileName || `${order.serviceTitle}_${order.nidNumber}.pdf`,
+                    dataUrl: order.pdfDataUrl,
+                    fallbackUrl: order.deliveryFileUrl,
+                  });
+                  if (!downloaded) {
+                    onViewReceipt(order);
+                  }
                 } else {
                   onViewReceipt(order);
                 }
@@ -743,7 +749,13 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                           <button
                             key={cf.id}
                             type="button"
-                            onClick={() => triggerFileDownload(cf.dataUrl, cf.fileName)}
+                            onClick={() =>
+                              void downloadOrderFile({
+                                fileId: cf.fileId || cf.id,
+                                fileName: cf.fileName,
+                                dataUrl: cf.dataUrl,
+                              })
+                            }
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[11px] font-semibold transition-colors"
                           >
                             <Paperclip className="w-3 h-3" />

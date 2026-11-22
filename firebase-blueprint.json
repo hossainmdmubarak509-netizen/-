@@ -1,0 +1,231 @@
+{
+  "entities": {
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Global application settings, payment numbers, marquee/popup notices, fees, and notification preferences.",
+      "type": "object",
+      "properties": {
+        "noticeText": { "type": "string", "maxLength": 2000 },
+        "noticeEnabled": { "type": "boolean" },
+        "popupNoticeId": { "type": "string", "maxLength": 128 },
+        "popupNoticeTitle": { "type": "string", "maxLength": 200 },
+        "popupNoticeText": { "type": "string", "maxLength": 4000 },
+        "popupNoticeEnabled": { "type": "boolean" },
+        "popupNoticeSentAt": { "type": "string", "maxLength": 64 },
+        "paymentNumbers": { "type": "object" },
+        "nidFees": { "type": "object" },
+        "notifications": { "type": "object" },
+        "whatsappNumber": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["noticeText", "noticeEnabled", "paymentNumbers", "nidFees", "notifications", "whatsappNumber"]
+    },
+    "DriveOffer": {
+      "title": "DriveOffer",
+      "description": "Telecom drive offer package published by admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "operator": { "type": "string", "enum": ["GP", "Robi", "Banglalink", "Airtel", "Teletalk", "Skitto"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "category": { "type": "string", "enum": ["combo", "internet", "minute", "cashback", "special"] },
+        "description": { "type": "string", "maxLength": 1000 },
+        "regularPrice": { "type": "number" },
+        "offerPrice": { "type": "number" },
+        "cashback": { "type": "number" },
+        "validity": { "type": "string", "maxLength": 100 },
+        "division": { "type": "string", "maxLength": 150 },
+        "commission": { "type": "number" },
+        "tag": { "type": "string", "maxLength": 80 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "operator", "title", "category", "regularPrice", "offerPrice", "validity", "division", "active"]
+    },
+    "DigitalServiceItem": {
+      "title": "DigitalServiceItem",
+      "description": "Custom or system digital service (NID PDF, Server Copy, etc.) with dynamic form fields.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "fee": { "type": "number" },
+        "category": { "type": "string", "enum": ["nid", "certificate", "gov", "other"] },
+        "icon": { "type": "string", "maxLength": 64 },
+        "fields": { "type": "array" },
+        "active": { "type": "boolean" },
+        "isSystemDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "title", "description", "fee", "category", "icon", "fields", "active"]
+    },
+    "PortalUser": {
+      "title": "PortalUser",
+      "description": "Portal customer or admin profile with wallet balance and hashed credentials.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 150 },
+        "phone": { "type": "string", "minLength": 5, "maxLength": 30 },
+        "email": { "type": "string", "maxLength": 150 },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "balance": { "type": "number" },
+        "passwordHash": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "name", "phone", "email", "role", "balance", "createdAt"]
+    },
+    "AddMoneyRequest": {
+      "title": "AddMoneyRequest",
+      "description": "Customer wallet deposit request awaiting admin verification.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 150 },
+        "userPhone": { "type": "string", "maxLength": 30 },
+        "method": { "type": "string", "enum": ["bKash", "Nagad", "Rocket", "Upay"] },
+        "senderNumber": { "type": "string", "maxLength": 30 },
+        "amount": { "type": "number" },
+        "trxId": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "adminNote": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "userId", "userName", "userPhone", "method", "senderNumber", "amount", "trxId", "status", "timestamp"]
+    },
+    "RechargeRequest": {
+      "title": "RechargeRequest",
+      "description": "Mobile recharge or drive offer purchase request.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 150 },
+        "userPhone": { "type": "string", "maxLength": 30 },
+        "type": { "type": "string", "enum": ["recharge", "drive_offer"] },
+        "operator": { "type": "string", "enum": ["GP", "Robi", "Banglalink", "Airtel", "Teletalk", "Skitto", "All"] },
+        "targetPhone": { "type": "string", "maxLength": 30 },
+        "simType": { "type": "string", "enum": ["Prepaid", "Postpaid"] },
+        "amount": { "type": "number" },
+        "offerId": { "type": "string", "maxLength": 128 },
+        "offerTitle": { "type": "string", "maxLength": 250 },
+        "offerCategory": { "type": "string", "maxLength": 50 },
+        "customerNote": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["pending", "completed", "rejected"] },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "completedAt": { "type": "string", "maxLength": 64 },
+        "trxId": { "type": "string", "maxLength": 100 },
+        "note": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "userId", "userName", "userPhone", "type", "operator", "targetPhone", "simType", "amount", "status", "timestamp", "trxId"]
+    },
+    "NidOrderRequest": {
+      "title": "NidOrderRequest",
+      "description": "Digital & NID service order with form payload, customer file attachment metadata, and admin delivery metadata.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userName": { "type": "string", "maxLength": 150 },
+        "userPhone": { "type": "string", "maxLength": 30 },
+        "serviceId": { "type": "string", "maxLength": 128 },
+        "serviceType": { "type": "string", "maxLength": 128 },
+        "serviceTitle": { "type": "string", "maxLength": 200 },
+        "fee": { "type": "number" },
+        "formData": { "type": "object" },
+        "name": { "type": "string", "maxLength": 150 },
+        "nidNumber": { "type": "string", "maxLength": 60 },
+        "dateOfBirth": { "type": "string", "maxLength": 60 },
+        "upazila": { "type": "string", "maxLength": 100 },
+        "district": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["pending", "completed", "rejected"] },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "completedAt": { "type": "string", "maxLength": 64 },
+        "trxId": { "type": "string", "maxLength": 100 },
+        "deliveryFileUrl": { "type": "string", "maxLength": 500 },
+        "pdfFileId": { "type": "string", "maxLength": 128 },
+        "pdfFileName": { "type": "string", "maxLength": 250 },
+        "pdfFileSize": { "type": "string", "maxLength": 64 },
+        "pdfDataUrl": { "type": "string", "maxLength": 100000 },
+        "customerFiles": { "type": "array" },
+        "deliveryNote": { "type": "string", "maxLength": 1000 },
+        "adminRemarks": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["id", "userId", "userName", "userPhone", "serviceType", "serviceTitle", "fee", "nidNumber", "dateOfBirth", "status", "timestamp", "trxId"]
+    },
+    "AdminNotification": {
+      "title": "AdminNotification",
+      "description": "Real-time notification alerts for the admin dashboard.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["recharge", "drive_offer", "nid_order", "add_money", "system"] },
+        "title": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "amount": { "type": "number" },
+        "customerName": { "type": "string", "maxLength": 150 },
+        "customerPhone": { "type": "string", "maxLength": 30 },
+        "targetRefId": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "read": { "type": "boolean" }
+      },
+      "required": ["id", "type", "title", "message", "customerName", "customerPhone", "timestamp", "read"]
+    },
+    "PortalFileChunk": {
+      "title": "PortalFileChunk",
+      "description": "Chunked base64 payload for uploaded customer and admin PDF/image/document files.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "fileId": { "type": "string", "maxLength": 128 },
+        "chunkIndex": { "type": "number" },
+        "totalChunks": { "type": "number" },
+        "fileName": { "type": "string", "maxLength": 255 },
+        "fileSize": { "type": "string", "maxLength": 64 },
+        "fileType": { "type": "string", "maxLength": 150 },
+        "chunkData": { "type": "string", "maxLength": 700000 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "fileId", "chunkIndex", "totalChunks", "fileName", "chunkData", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSettings" },
+      "description": "Global application settings document ('app')."
+    },
+    "/offers/{offerId}": {
+      "schema": { "$ref": "#/entities/DriveOffer" },
+      "description": "Drive offers catalog."
+    },
+    "/digital_services/{serviceId}": {
+      "schema": { "$ref": "#/entities/DigitalServiceItem" },
+      "description": "Dynamic digital/NID service definitions."
+    },
+    "/portal_users/{userId}": {
+      "schema": { "$ref": "#/entities/PortalUser" },
+      "description": "Registered customer and admin profiles."
+    },
+    "/add_money_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/AddMoneyRequest" },
+      "description": "Manual add-money wallet requests."
+    },
+    "/recharge_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/RechargeRequest" },
+      "description": "Mobile recharge and drive offer order requests."
+    },
+    "/nid_orders/{orderId}": {
+      "schema": { "$ref": "#/entities/NidOrderRequest" },
+      "description": "NID & digital service orders with file attachment references."
+    },
+    "/admin_notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/AdminNotification" },
+      "description": "Admin order notification feed."
+    },
+    "/portal_files/{chunkId}": {
+      "schema": { "$ref": "#/entities/PortalFileChunk" },
+      "description": "Chunked binary file storage for PDF/image/doc uploads across devices."
+    }
+  }
+}

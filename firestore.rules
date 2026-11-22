@@ -1,0 +1,363 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net - default deny all unlisted collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // GLOBAL VALIDATION HELPERS
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isStr(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isNum(val, minVal, maxVal) {
+      return val is number && val >= minVal && val <= maxVal;
+    }
+
+    function isValidOperator(op) {
+      return op in ['GP', 'Robi', 'Banglalink', 'Airtel', 'Teletalk', 'Skitto'];
+    }
+
+    function isValidOrderOperator(op) {
+      return op in ['GP', 'Robi', 'Banglalink', 'Airtel', 'Teletalk', 'Skitto', 'All'];
+    }
+
+    function isValidPaymentMethod(m) {
+      return m in ['bKash', 'Nagad', 'Rocket', 'Upay'];
+    }
+
+    // =========================================================================
+    // ENTITY VALIDATION BLUEPRINTS (Anti-Update-Gap & Strict Keys)
+    // =========================================================================
+    function isValidSettings(data) {
+      return data.keys().hasAll(['noticeText', 'noticeEnabled', 'paymentNumbers', 'nidFees', 'notifications', 'whatsappNumber']) &&
+        data.keys().hasOnly([
+          'noticeText', 'noticeEnabled', 'popupNoticeId', 'popupNoticeTitle',
+          'popupNoticeText', 'popupNoticeEnabled', 'popupNoticeSentAt',
+          'paymentNumbers', 'nidFees', 'notifications', 'whatsappNumber'
+        ]) &&
+        isStr(data.noticeText, 0, 2000) &&
+        data.noticeEnabled is bool &&
+        (!('popupNoticeId' in data) || isStr(data.popupNoticeId, 0, 128)) &&
+        (!('popupNoticeTitle' in data) || isStr(data.popupNoticeTitle, 0, 200)) &&
+        (!('popupNoticeText' in data) || isStr(data.popupNoticeText, 0, 4000)) &&
+        (!('popupNoticeEnabled' in data) || data.popupNoticeEnabled is bool) &&
+        (!('popupNoticeSentAt' in data) || isStr(data.popupNoticeSentAt, 0, 64)) &&
+        data.paymentNumbers is map &&
+        data.paymentNumbers.keys().hasAll(['bKash', 'Nagad', 'Rocket', 'Upay']) &&
+        data.paymentNumbers.keys().hasOnly(['bKash', 'Nagad', 'Rocket', 'Upay']) &&
+        isStr(data.paymentNumbers.bKash, 0, 60) &&
+        isStr(data.paymentNumbers.Nagad, 0, 60) &&
+        isStr(data.paymentNumbers.Rocket, 0, 60) &&
+        isStr(data.paymentNumbers.Upay, 0, 60) &&
+        data.nidFees is map &&
+        data.notifications is map &&
+        data.notifications.keys().hasAll([
+          'soundEnabled', 'browserNotificationsEnabled', 'notifyOnRecharge',
+          'notifyOnDriveOffer', 'notifyOnNidOrder', 'notifyOnAddMoney'
+        ]) &&
+        isStr(data.whatsappNumber, 0, 40);
+    }
+
+    function isValidOffer(data) {
+      return data.keys().hasAll(['id', 'operator', 'title', 'category', 'regularPrice', 'offerPrice', 'validity', 'division', 'active']) &&
+        data.keys().hasOnly([
+          'id', 'operator', 'title', 'category', 'description',
+          'regularPrice', 'offerPrice', 'cashback', 'validity',
+          'division', 'commission', 'tag', 'active', 'createdAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidOperator(data.operator) &&
+        isStr(data.title, 1, 200) &&
+        data.category in ['combo', 'internet', 'minute', 'cashback', 'special'] &&
+        (!('description' in data) || isStr(data.description, 0, 1000)) &&
+        isNum(data.regularPrice, 0, 1000000) &&
+        isNum(data.offerPrice, 0, 1000000) &&
+        (!('cashback' in data) || isNum(data.cashback, 0, 1000000)) &&
+        isStr(data.validity, 1, 100) &&
+        isStr(data.division, 1, 150) &&
+        (!('commission' in data) || isNum(data.commission, 0, 1000000)) &&
+        (!('tag' in data) || isStr(data.tag, 0, 80)) &&
+        data.active is bool &&
+        (!('createdAt' in data) || isStr(data.createdAt, 0, 64));
+    }
+
+    function isValidDigitalService(data) {
+      return data.keys().hasAll(['id', 'title', 'description', 'fee', 'category', 'icon', 'fields', 'active']) &&
+        data.keys().hasOnly([
+          'id', 'title', 'description', 'fee', 'category',
+          'icon', 'fields', 'active', 'isSystemDefault', 'createdAt'
+        ]) &&
+        isValidId(data.id) &&
+        isStr(data.title, 1, 200) &&
+        isStr(data.description, 0, 1000) &&
+        isNum(data.fee, 0, 1000000) &&
+        data.category in ['nid', 'certificate', 'gov', 'other'] &&
+        isStr(data.icon, 1, 64) &&
+        data.fields is list && data.fields.size() <= 30 &&
+        (data.fields.size() == 0 || data.fields[0] is map) &&
+        data.active is bool &&
+        (!('isSystemDefault' in data) || data.isSystemDefault is bool) &&
+        (!('createdAt' in data) || isStr(data.createdAt, 0, 64));
+    }
+
+    function isValidPortalUser(data) {
+      return data.keys().hasAll(['id', 'name', 'phone', 'email', 'role', 'balance', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'name', 'phone', 'email', 'role', 'balance', 'passwordHash', 'createdAt']) &&
+        isValidId(data.id) &&
+        isStr(data.name, 1, 150) &&
+        isStr(data.phone, 5, 30) &&
+        isStr(data.email, 0, 150) &&
+        data.role in ['user', 'admin'] &&
+        isNum(data.balance, 0, 100000000) &&
+        (!('passwordHash' in data) || isStr(data.passwordHash, 16, 128)) &&
+        isStr(data.createdAt, 1, 64);
+    }
+
+    function isValidAddMoney(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'userPhone', 'method', 'senderNumber', 'amount', 'trxId', 'status', 'timestamp']) &&
+        data.keys().hasOnly([
+          'id', 'userId', 'userName', 'userPhone', 'method',
+          'senderNumber', 'amount', 'trxId', 'status', 'timestamp', 'adminNote'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.userId) &&
+        isStr(data.userName, 1, 150) &&
+        isStr(data.userPhone, 5, 30) &&
+        isValidPaymentMethod(data.method) &&
+        isStr(data.senderNumber, 3, 30) &&
+        isNum(data.amount, 1, 10000000) &&
+        isStr(data.trxId, 1, 100) &&
+        data.status in ['pending', 'approved', 'rejected'] &&
+        isStr(data.timestamp, 1, 64) &&
+        (!('adminNote' in data) || isStr(data.adminNote, 0, 500));
+    }
+
+    function isValidRecharge(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'userPhone', 'type', 'operator', 'targetPhone', 'simType', 'amount', 'status', 'timestamp', 'trxId']) &&
+        data.keys().hasOnly([
+          'id', 'userId', 'userName', 'userPhone', 'type', 'operator',
+          'targetPhone', 'simType', 'amount', 'offerId', 'offerTitle',
+          'offerCategory', 'customerNote', 'status', 'timestamp',
+          'completedAt', 'trxId', 'note'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.userId) &&
+        isStr(data.userName, 1, 150) &&
+        isStr(data.userPhone, 5, 30) &&
+        data.type in ['recharge', 'drive_offer'] &&
+        isValidOrderOperator(data.operator) &&
+        isStr(data.targetPhone, 5, 30) &&
+        data.simType in ['Prepaid', 'Postpaid'] &&
+        isNum(data.amount, 1, 10000000) &&
+        (!('offerId' in data) || isStr(data.offerId, 0, 128)) &&
+        (!('offerTitle' in data) || isStr(data.offerTitle, 0, 250)) &&
+        (!('offerCategory' in data) || isStr(data.offerCategory, 0, 50)) &&
+        (!('customerNote' in data) || isStr(data.customerNote, 0, 500)) &&
+        data.status in ['pending', 'completed', 'rejected'] &&
+        isStr(data.timestamp, 1, 64) &&
+        (!('completedAt' in data) || isStr(data.completedAt, 0, 64)) &&
+        isStr(data.trxId, 1, 100) &&
+        (!('note' in data) || isStr(data.note, 0, 500));
+    }
+
+    function isValidNidOrder(data) {
+      return data.keys().hasAll(['id', 'userId', 'userName', 'userPhone', 'serviceType', 'serviceTitle', 'fee', 'nidNumber', 'dateOfBirth', 'status', 'timestamp', 'trxId']) &&
+        data.keys().hasOnly([
+          'id', 'userId', 'userName', 'userPhone', 'serviceId', 'serviceType',
+          'serviceTitle', 'fee', 'formData', 'name', 'nidNumber', 'dateOfBirth',
+          'upazila', 'district', 'status', 'timestamp', 'completedAt', 'trxId',
+          'deliveryFileUrl', 'pdfFileId', 'pdfFileName', 'pdfFileSize', 'pdfDataUrl',
+          'customerFiles', 'deliveryNote', 'adminRemarks'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.userId) &&
+        isStr(data.userName, 1, 150) &&
+        isStr(data.userPhone, 5, 30) &&
+        (!('serviceId' in data) || isStr(data.serviceId, 0, 128)) &&
+        isStr(data.serviceType, 1, 128) &&
+        isStr(data.serviceTitle, 1, 200) &&
+        isNum(data.fee, 0, 1000000) &&
+        (!('formData' in data) || data.formData is map) &&
+        (!('name' in data) || isStr(data.name, 0, 150)) &&
+        isStr(data.nidNumber, 1, 60) &&
+        isStr(data.dateOfBirth, 1, 60) &&
+        (!('upazila' in data) || isStr(data.upazila, 0, 100)) &&
+        (!('district' in data) || isStr(data.district, 0, 100)) &&
+        data.status in ['pending', 'completed', 'rejected'] &&
+        isStr(data.timestamp, 1, 64) &&
+        (!('completedAt' in data) || isStr(data.completedAt, 0, 64)) &&
+        isStr(data.trxId, 1, 100) &&
+        (!('deliveryFileUrl' in data) || isStr(data.deliveryFileUrl, 0, 500)) &&
+        (!('pdfFileId' in data) || isStr(data.pdfFileId, 0, 128)) &&
+        (!('pdfFileName' in data) || isStr(data.pdfFileName, 0, 250)) &&
+        (!('pdfFileSize' in data) || isStr(data.pdfFileSize, 0, 64)) &&
+        (!('pdfDataUrl' in data) || isStr(data.pdfDataUrl, 0, 100000)) &&
+        (!('customerFiles' in data) || (data.customerFiles is list && data.customerFiles.size() <= 15 && (data.customerFiles.size() == 0 || data.customerFiles[0] is map))) &&
+        (!('deliveryNote' in data) || isStr(data.deliveryNote, 0, 1000)) &&
+        (!('adminRemarks' in data) || isStr(data.adminRemarks, 0, 500));
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'type', 'title', 'message', 'customerName', 'customerPhone', 'timestamp', 'read']) &&
+        data.keys().hasOnly([
+          'id', 'type', 'title', 'message', 'amount',
+          'customerName', 'customerPhone', 'targetRefId', 'timestamp', 'read'
+        ]) &&
+        isValidId(data.id) &&
+        data.type in ['recharge', 'drive_offer', 'nid_order', 'add_money', 'system'] &&
+        isStr(data.title, 1, 200) &&
+        isStr(data.message, 1, 1000) &&
+        (!('amount' in data) || isNum(data.amount, 0, 10000000)) &&
+        isStr(data.customerName, 1, 150) &&
+        isStr(data.customerPhone, 1, 30) &&
+        (!('targetRefId' in data) || isStr(data.targetRefId, 0, 128)) &&
+        isStr(data.timestamp, 1, 64) &&
+        data.read is bool;
+    }
+
+    function isValidPortalFileChunk(data) {
+      return data.keys().hasAll(['id', 'fileId', 'chunkIndex', 'totalChunks', 'fileName', 'chunkData', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'fileId', 'chunkIndex', 'totalChunks', 'fileName', 'fileSize', 'fileType', 'chunkData', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.fileId) &&
+        isNum(data.chunkIndex, 0, 30) &&
+        isNum(data.totalChunks, 1, 30) &&
+        isStr(data.fileName, 1, 255) &&
+        (!('fileSize' in data) || isStr(data.fileSize, 0, 64)) &&
+        (!('fileType' in data) || isStr(data.fileType, 0, 150)) &&
+        isStr(data.chunkData, 1, 700000) &&
+        isStr(data.createdAt, 1, 64);
+    }
+
+    // =========================================================================
+    // COLLECTION MATCH BLOCKS
+    // =========================================================================
+
+    match /test/{docId} {
+      allow get: if isValidId(docId);
+      allow list, write: if false;
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && settingId == 'app';
+      allow list: if resource.data is map && 'paymentNumbers' in resource.data;
+      allow create, update: if isValidId(settingId) && settingId == 'app' && isValidSettings(incoming());
+      allow delete: if false;
+    }
+
+    match /offers/{offerId} {
+      allow get: if isValidId(offerId);
+      allow list: if resource.data is map && resource.data.id is string;
+      allow create: if isValidId(offerId) && isValidOffer(incoming()) && incoming().id == offerId;
+      allow update: if isValidId(offerId) && isValidOffer(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'operator', 'title', 'category', 'description', 'regularPrice',
+          'offerPrice', 'cashback', 'validity', 'division', 'commission',
+          'tag', 'active', 'createdAt'
+        ]);
+      allow delete: if isValidId(offerId) && existing() is map;
+    }
+
+    match /digital_services/{serviceId} {
+      allow get: if isValidId(serviceId);
+      allow list: if resource.data is map && resource.data.id is string;
+      allow create: if isValidId(serviceId) && isValidDigitalService(incoming()) && incoming().id == serviceId;
+      allow update: if isValidId(serviceId) && isValidDigitalService(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'description', 'fee', 'category', 'icon',
+          'fields', 'active', 'isSystemDefault', 'createdAt'
+        ]);
+      allow delete: if isValidId(serviceId) && existing() is map;
+    }
+
+    match /portal_users/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if resource.data is map && resource.data.phone is string;
+      allow create: if isValidId(userId) && isValidPortalUser(incoming()) && incoming().id == userId;
+      allow update: if isValidId(userId) && isValidPortalUser(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().phone == existing().phone &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'email', 'balance', 'role', 'passwordHash'
+        ]);
+      allow delete: if isValidId(userId) && existing() is map;
+    }
+
+    match /add_money_requests/{requestId} {
+      allow get: if isValidId(requestId);
+      allow list: if resource.data is map && resource.data.userId is string;
+      allow create: if isValidId(requestId) && isValidAddMoney(incoming()) && incoming().id == requestId;
+      allow update: if isValidId(requestId) && isValidAddMoney(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().trxId == existing().trxId &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminNote']);
+      allow delete: if isValidId(requestId) && existing() is map;
+    }
+
+    match /recharge_requests/{requestId} {
+      allow get: if isValidId(requestId);
+      allow list: if resource.data is map && resource.data.userId is string;
+      allow create: if isValidId(requestId) && isValidRecharge(incoming()) && incoming().id == requestId;
+      allow update: if isValidId(requestId) && isValidRecharge(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().trxId == existing().trxId &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt', 'note']);
+      allow delete: if isValidId(requestId) && existing() is map;
+    }
+
+    match /nid_orders/{orderId} {
+      allow get: if isValidId(orderId);
+      allow list: if resource.data is map && resource.data.userId is string;
+      allow create: if isValidId(orderId) && isValidNidOrder(incoming()) && incoming().id == orderId;
+      allow update: if isValidId(orderId) && isValidNidOrder(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().trxId == existing().trxId &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'completedAt', 'deliveryFileUrl', 'pdfFileId',
+          'pdfFileName', 'pdfFileSize', 'pdfDataUrl', 'deliveryNote', 'adminRemarks'
+        ]);
+      allow delete: if isValidId(orderId) && existing() is map;
+    }
+
+    match /admin_notifications/{notifId} {
+      allow get: if isValidId(notifId);
+      allow list: if resource.data is map && resource.data.id is string;
+      allow create: if isValidId(notifId) && isValidNotification(incoming()) && incoming().id == notifId;
+      allow update: if isValidId(notifId) && isValidNotification(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isValidId(notifId) && existing() is map;
+    }
+
+    match /portal_files/{chunkId} {
+      allow get: if isValidId(chunkId);
+      allow list: if resource.data is map && resource.data.fileId is string;
+      allow create: if isValidId(chunkId) && isValidPortalFileChunk(incoming()) && incoming().id == chunkId;
+      allow update: if false;
+      allow delete: if isValidId(chunkId) && existing() is map;
+    }
+  }
+}

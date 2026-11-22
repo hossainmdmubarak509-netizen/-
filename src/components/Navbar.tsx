@@ -25,15 +25,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   const isAdmin = currentUser?.role === 'admin' && currentUser?.phone === '01844868379';
 
   return (
-    <header className="sticky top-0 z-40 bg-indigo-900 text-white shadow-md border-b border-indigo-950">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-40 w-full bg-indigo-900 text-white shadow-md border-b border-indigo-950 overflow-hidden">
+      <div className="max-w-6xl mx-auto px-2.5 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2 sm:gap-4">
         
         {/* Left Zone: Three-Dot Menu + Brand / Logo */}
-        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {currentUser && currentView === 'user' && (
             <button
               onClick={onOpenSideMenu}
-              className="p-2 rounded-xl bg-indigo-800/80 hover:bg-indigo-700 text-white border border-indigo-700/70 shadow-2xs transition-all active:scale-95"
+              className="p-1.5 sm:p-2 rounded-xl bg-indigo-800/80 hover:bg-indigo-700 text-white border border-indigo-700/70 shadow-2xs transition-all active:scale-95 shrink-0"
               title="মেনু ও সকল সেবা দেখুন"
               aria-label="মেনু খুলুন"
             >
@@ -47,51 +47,51 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onToggleView('admin');
               }
             }} 
-            className={`flex items-center gap-2.5 group shrink-0 ${isAdmin ? 'cursor-pointer' : ''}`}
+            className={`flex items-center gap-2 sm:gap-2.5 group min-w-0 ${isAdmin ? 'cursor-pointer' : ''}`}
           >
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm group-hover:bg-indigo-500 transition-colors">
-              <Radio className="w-5 h-5" />
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-sm group-hover:bg-indigo-500 transition-colors shrink-0">
+              <Radio className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg md:text-xl tracking-tight text-white leading-tight">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="font-bold text-sm sm:text-lg md:text-xl tracking-tight text-white leading-tight truncate">
                   টেলিকম সেবা
                 </span>
-                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-indigo-800 text-indigo-200 border border-indigo-700">
+                <span className="hidden sm:inline-block text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-indigo-800 text-indigo-200 border border-indigo-700 shrink-0">
                   BD Portal
                 </span>
               </div>
-              <p className="text-[11px] text-indigo-300 hidden sm:block">ডিজিটাল রিচার্জ ও ড্রাইভ হাব</p>
+              <p className="text-[11px] text-indigo-300 hidden sm:block truncate">ডিজিটাল রিচার্জ ও ড্রাইভ হাব</p>
             </div>
           </div>
         </div>
 
         {/* Right Zone: User actions, Balance, Helpline, Logout */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {/* Customer Wallet & Name (Shown only to logged-in customers) */}
           {currentUser && !isAdmin && (
             <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 onClick={onOpenAddMoney}
-                className="flex items-center gap-2 bg-indigo-950/70 hover:bg-indigo-950 border border-indigo-700/60 rounded-xl px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium transition-all group"
+                className="flex items-center gap-1 sm:gap-2 bg-indigo-950/70 hover:bg-indigo-950 border border-indigo-700/60 rounded-xl px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium transition-all group shrink-0"
                 title="ব্যালেন্স রিচার্জ করতে ক্লিক করুন"
               >
-                <Wallet className="w-3.5 h-3.5 text-emerald-400" />
+                <Wallet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <span className="text-indigo-200 hidden md:inline">ব্যালেন্স:</span>
                 <span className="font-bold text-white font-mono-nums">
                   {formatTaka(currentUser.balance)}
                 </span>
-                <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-xs group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                <span className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-xs group-hover:bg-emerald-500 group-hover:text-white transition-colors shrink-0">
                   <Plus className="w-3 h-3" />
                 </span>
               </button>
 
               <div
-                className="flex items-center gap-1.5 text-xs bg-indigo-800/80 px-2.5 py-1.5 rounded-xl border border-indigo-700 text-indigo-100"
-                title="লগইনকৃত প্রোফাইল"
+                className="flex items-center gap-1 sm:gap-1.5 text-[11px] sm:text-xs bg-indigo-800/80 px-2 sm:px-2.5 py-1.5 rounded-xl border border-indigo-700 text-indigo-100 max-w-[92px] sm:max-w-[140px]"
+                title={currentUser.name}
               >
-                <UserIcon className="w-3.5 h-3.5 text-indigo-300" />
-                <span className="max-w-[90px] sm:max-w-[120px] truncate font-medium">
+                <UserIcon className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                <span className="truncate font-medium">
                   {currentUser.name}
                 </span>
               </div>

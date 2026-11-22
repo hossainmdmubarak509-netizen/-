@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types/telecom';
 import { isValidBdPhone } from '../utils/telecomUtils';
+import { hashPassword, verifyUserPassword } from '../utils/passwordHelper';
 
 interface AuthSectionProps {
   onLogin: (user: User, openAdmin?: boolean) => void;
@@ -37,7 +38,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({ onLogin, availableUser
   const [error, setError] = useState<string | null>(null);
 
   // Handle Login
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -57,16 +58,20 @@ export const AuthSection: React.FC<AuthSectionProps> = ({ onLogin, availableUser
     // 1. Check Admin Credentials: 01844868379 / mnb229Am
     if (cleanPhone === '01844868379') {
       if (cleanPassword === 'mnb229Am') {
-        const adminUser: User = availableUsers.find((u) => u.phone === '01844868379') || {
-          id: 'user-admin',
-          name: 'টেলিকম সুপার এডমিন',
-          phone: '01844868379',
-          email: 'admin@telecomportal.bd',
-          role: 'admin',
-          balance: 50000.0,
-          password: 'mnb229Am',
-          createdAt: new Date().toISOString(),
-        };
+        const existingAdmin = availableUsers.find((u) => u.phone === '01844868379');
+        const passwordHash = existingAdmin?.passwordHash || (await hashPassword('mnb229Am'));
+        const adminUser: User = existingAdmin
+          ? { ...existingAdmin, role: 'admin', passwordHash }
+          : {
+              id: 'user-admin',
+              name: 'টেলিকম সুপার এডমিন',
+              phone: '01844868379',
+              email: 'admin@telecomportal.bd',
+              role: 'admin',
+              balance: 50000.0,
+              passwordHash,
+              createdAt: new Date().toISOString(),
+            };
         onLogin(adminUser, true);
         return;
       } else {
@@ -78,16 +83,20 @@ export const AuthSection: React.FC<AuthSectionProps> = ({ onLogin, availableUser
     // 2. Check Customer Demo Credentials: 01624488010 / mnb229Am
     if (cleanPhone === '01624488010') {
       if (cleanPassword === 'mnb229Am') {
-        const demoCustomer: User = availableUsers.find((u) => u.phone === '01624488010') || {
-          id: 'user-demo-customer',
-          name: 'টেস্ট কাস্টমার',
-          phone: '01624488010',
-          email: 'customer@telecom.bd',
-          role: 'user',
-          balance: 850.0,
-          password: 'mnb229Am',
-          createdAt: new Date().toISOString(),
-        };
+        const existingDemo = availableUsers.find((u) => u.phone === '01624488010');
+        const passwordHash = existingDemo?.passwordHash || (await hashPassword('mnb229Am'));
+        const demoCustomer: User = existingDemo
+          ? { ...existingDemo, passwordHash }
+          : {
+              id: 'user-demo-customer',
+              name: 'টেস্ট কাস্টমার',
+              phone: '01624488010',
+              email: 'customer@telecom.bd',
+              role: 'user',
+              balance: 850.0,
+              passwordHash,
+              createdAt: new Date().toISOString(),
+            };
         onLogin(demoCustomer, false);
         return;
       } else {
@@ -96,10 +105,11 @@ export const AuthSection: React.FC<AuthSectionProps> = ({ onLogin, availableUser
       }
     }
 
-    // 3. Check Other existing users
+    // 3. Check Other existing users registered in Firestore
     const matchedUser = availableUsers.find((u) => u.phone === cleanPhone);
     if (matchedUser) {
-      if (matchedUser.password && matchedUser.password !== cleanPassword) {
+      const ok = await verifyUserPassword(cleanPassword, matchedUser);
+      if (!ok) {
         setError('পাসওয়ার্ড ভুল হয়েছে! পুনরায় চেষ্টা করুন।');
         return;
       }
@@ -111,7 +121,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({ onLogin, availableUser
   };
 
   // Handle Register
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
@@ -137,15 +147,17 @@ export const AuthSection: React.FC<AuthSectionProps> = ({ onLogin, availableUser
       return;
     }
 
-    // Create new registered customer
+    const passwordHash = await hashPassword(regPassword.trim());
+
+    // Create new registered customer (0 balance, no bonus)
     const newUser: User = {
       id: `user-${Date.now()}`,
       name: regName.trim(),
       phone: regPhone.trim(),
       email: regEmail.trim() || `${regPhone.trim()}@telecom.bd`,
-      password: regPassword.trim(),
+      passwordHash,
       role: 'user',
-      balance: 100.0, // Welcome bonus of ৳100 for newly registered customers
+      balance: 0.0,
       createdAt: new Date().toISOString(),
     };
 
@@ -345,7 +357,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({ onLogin, availableUser
               type="submit"
               className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all shadow-md hover:shadow-lg text-sm"
             >
-              <span>রেজিস্ট্রেশন করুন (+ ৳১০০ বোনাস)</span>
+              <span>নতুন একাউন্ট খুলুন</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>

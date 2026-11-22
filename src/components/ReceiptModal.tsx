@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { CheckCircle2, Clock, XCircle, Copy, Check, Printer, X, ShieldCheck, Download } from 'lucide-react';
 import { RechargeRequest, AddMoneyRequest, NidOrderRequest, Operator } from '../types/telecom';
 import { formatTaka, formatDateTime, OPERATORS } from '../utils/telecomUtils';
-import { triggerFileDownload } from '../utils/pdfHelper';
+import { downloadOrderFile } from '../utils/cloudFileService';
 
 interface ReceiptModalProps {
   receipt: RechargeRequest | AddMoneyRequest | NidOrderRequest | null;
@@ -209,7 +209,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
                           <button
                             key={cf.id}
                             type="button"
-                            onClick={() => triggerFileDownload(cf.dataUrl, cf.fileName)}
+                            onClick={() =>
+                              void downloadOrderFile({
+                                fileId: cf.fileId || cf.id,
+                                fileName: cf.fileName,
+                                dataUrl: cf.dataUrl,
+                              })
+                            }
                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-indigo-400 text-indigo-700 text-[11px] font-semibold"
                           >
                             <Download className="w-3 h-3" />
@@ -268,14 +274,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
             <button
               onClick={() => {
                 const nidReq = receipt as NidOrderRequest;
-                if (nidReq.pdfDataUrl) {
-                  triggerFileDownload(
-                    nidReq.pdfDataUrl,
-                    nidReq.pdfFileName || `${nidReq.serviceTitle}_${nidReq.nidNumber}.pdf`
-                  );
-                } else if (nidReq.deliveryFileUrl && nidReq.deliveryFileUrl !== '#') {
-                  window.open(nidReq.deliveryFileUrl, '_blank');
-                }
+                void downloadOrderFile({
+                  fileId: nidReq.pdfFileId || `delivery_${nidReq.id}`,
+                  fileName: nidReq.pdfFileName || `${nidReq.serviceTitle}_${nidReq.nidNumber}.pdf`,
+                  dataUrl: nidReq.pdfDataUrl,
+                  fallbackUrl: nidReq.deliveryFileUrl,
+                });
               }}
               className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-sm"
             >

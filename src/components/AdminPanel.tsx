@@ -56,7 +56,8 @@ import {
   NotificationSettings,
 } from '../types/telecom';
 import { formatTaka, formatDateTime, OPERATORS } from '../utils/telecomUtils';
-import { generateSampleNidPdf, triggerFileDownload, readFileAsDataUrl } from '../utils/pdfHelper';
+import { generateSampleNidPdf, readFileAsDataUrl } from '../utils/pdfHelper';
+import { downloadOrderFile } from '../utils/cloudFileService';
 import { playNotificationSound, requestBrowserNotificationPermission } from '../utils/soundHelper';
 
 interface AdminPanelProps {
@@ -226,16 +227,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [whatsappInput, setWhatsappInput] = useState(settings.whatsappNumber || '+8801844868379');
   const [settingsSaved, setSettingsSaved] = useState(false);
 
-  // Keep settings form state synced if settings change (e.g. demo reset)
+  // Keep individual settings form fields synced only when their specific section updates
+  useEffect(() => {
+    setPaymentNumbers(settings.paymentNumbers);
+  }, [settings.paymentNumbers]);
+
   useEffect(() => {
     setNoticeInput(settings.noticeText);
     setNoticeActive(settings.noticeEnabled);
+  }, [settings.noticeText, settings.noticeEnabled]);
+
+  useEffect(() => {
     setPopupTitleInput(settings.popupNoticeTitle || 'গুরুত্বপূর্ণ নোটিশ ও আপডেট');
     setPopupTextInput(settings.popupNoticeText || settings.noticeText);
     setPopupEnabledInput(settings.popupNoticeEnabled ?? true);
-    setPaymentNumbers(settings.paymentNumbers);
+  }, [settings.popupNoticeTitle, settings.popupNoticeText, settings.popupNoticeEnabled, settings.noticeText]);
+
+  useEffect(() => {
     setWhatsappInput(settings.whatsappNumber || '+8801844868379');
-  }, [settings]);
+  }, [settings.whatsappNumber]);
 
   // Computed metrics
   const pendingNidOrders = nidOrders.filter((o) => o.status === 'pending');
@@ -880,7 +890,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                     <button
                                       key={cf.id}
                                       type="button"
-                                      onClick={() => triggerFileDownload(cf.dataUrl, cf.fileName)}
+                                      onClick={() =>
+                                        void downloadOrderFile({
+                                          fileId: cf.fileId || cf.id,
+                                          fileName: cf.fileName,
+                                          dataUrl: cf.dataUrl,
+                                        })
+                                      }
                                       className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-[10px] font-bold transition-colors"
                                       title="কাস্টমারের ফাইল ডাউনলোড/দেখুন"
                                     >
@@ -969,13 +985,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
                           ) : (
                             <div className="flex items-center justify-end gap-1.5">
-                              {order.pdfDataUrl && (
+                              {(order.pdfDataUrl || order.pdfFileId) && (
                                 <button
                                   onClick={() =>
-                                    triggerFileDownload(
-                                      order.pdfDataUrl!,
-                                      order.pdfFileName || `${order.serviceTitle}.pdf`
-                                    )
+                                    void downloadOrderFile({
+                                      fileId: order.pdfFileId || `delivery_${order.id}`,
+                                      fileName: order.pdfFileName || `${order.serviceTitle}.pdf`,
+                                      dataUrl: order.pdfDataUrl,
+                                    })
                                   }
                                   className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg border border-emerald-200"
                                   title="আপলোডকৃত ফাইল দেখুন/ডাউনলোড করুন"
@@ -999,7 +1016,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   title="ডেলিভারি ফাইল আপলোড বা পরিবর্তন করুন"
                                 >
                                   <UploadCloud className="w-3 h-3" />
-                                  <span>{order.pdfDataUrl ? 'ফাইল বদলান' : 'ফাইল আপলোড'}</span>
+                                  <span>{order.pdfDataUrl || order.pdfFileId ? 'ফাইল বদলান' : 'ফাইল আপলোড'}</span>
                                 </button>
                               )}
                               {!isCompleted && (

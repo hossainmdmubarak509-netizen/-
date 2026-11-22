@@ -10,10 +10,11 @@ export type NidServiceType = 'nid_pdf' | 'server_copy' | 'user_pass_set' | strin
 
 export interface UploadedFileAttachment {
   id: string;
+  fileId?: string;
   fileName: string;
   fileSize: string;
   fileType: string;
-  dataUrl: string;
+  dataUrl?: string;
 }
 
 export interface CustomServiceField {
@@ -45,6 +46,7 @@ export interface User {
   role: 'user' | 'admin';
   balance: number;
   password?: string;
+  passwordHash?: string;
   createdAt: string;
 }
 
@@ -120,9 +122,10 @@ export interface NidOrderRequest {
   completedAt?: string;
   trxId: string;
   deliveryFileUrl?: string;
+  pdfFileId?: string;
   pdfFileName?: string;
   pdfFileSize?: string;
-  pdfDataUrl?: string; // Real Base64 Data URL for direct download (PDF, image, or any file)
+  pdfDataUrl?: string; // Inline Base64 or cloud-referenced via pdfFileId
   customerFiles?: UploadedFileAttachment[];
   deliveryNote?: string;
   adminRemarks?: string;
