@@ -257,14 +257,14 @@ service cloud.firestore {
 
     match /settings/{settingId} {
       allow get: if isValidId(settingId) && settingId == 'app';
-      allow list: if resource.data is map && 'paymentNumbers' in resource.data;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 10;
       allow create, update: if isValidId(settingId) && settingId == 'app' && isValidSettings(incoming());
       allow delete: if false;
     }
 
     match /offers/{offerId} {
       allow get: if isValidId(offerId);
-      allow list: if resource.data is map && resource.data.id is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 500;
       allow create: if isValidId(offerId) && isValidOffer(incoming()) && incoming().id == offerId;
       allow update: if isValidId(offerId) && isValidOffer(incoming()) &&
         incoming().id == existing().id &&
@@ -278,7 +278,7 @@ service cloud.firestore {
 
     match /digital_services/{serviceId} {
       allow get: if isValidId(serviceId);
-      allow list: if resource.data is map && resource.data.id is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 500;
       allow create: if isValidId(serviceId) && isValidDigitalService(incoming()) && incoming().id == serviceId;
       allow update: if isValidId(serviceId) && isValidDigitalService(incoming()) &&
         incoming().id == existing().id &&
@@ -291,7 +291,7 @@ service cloud.firestore {
 
     match /portal_users/{userId} {
       allow get: if isValidId(userId);
-      allow list: if resource.data is map && resource.data.phone is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 500;
       allow create: if isValidId(userId) && isValidPortalUser(incoming()) && incoming().id == userId;
       allow update: if isValidId(userId) && isValidPortalUser(incoming()) &&
         incoming().id == existing().id &&
@@ -305,7 +305,7 @@ service cloud.firestore {
 
     match /add_money_requests/{requestId} {
       allow get: if isValidId(requestId);
-      allow list: if resource.data is map && resource.data.userId is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 500;
       allow create: if isValidId(requestId) && isValidAddMoney(incoming()) && incoming().id == requestId;
       allow update: if isValidId(requestId) && isValidAddMoney(incoming()) &&
         incoming().id == existing().id &&
@@ -317,7 +317,7 @@ service cloud.firestore {
 
     match /recharge_requests/{requestId} {
       allow get: if isValidId(requestId);
-      allow list: if resource.data is map && resource.data.userId is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 500;
       allow create: if isValidId(requestId) && isValidRecharge(incoming()) && incoming().id == requestId;
       allow update: if isValidId(requestId) && isValidRecharge(incoming()) &&
         incoming().id == existing().id &&
@@ -329,7 +329,7 @@ service cloud.firestore {
 
     match /nid_orders/{orderId} {
       allow get: if isValidId(orderId);
-      allow list: if resource.data is map && resource.data.userId is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 500;
       allow create: if isValidId(orderId) && isValidNidOrder(incoming()) && incoming().id == orderId;
       allow update: if isValidId(orderId) && isValidNidOrder(incoming()) &&
         incoming().id == existing().id &&
@@ -344,7 +344,7 @@ service cloud.firestore {
 
     match /admin_notifications/{notifId} {
       allow get: if isValidId(notifId);
-      allow list: if resource.data is map && resource.data.id is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 500;
       allow create: if isValidId(notifId) && isValidNotification(incoming()) && incoming().id == notifId;
       allow update: if isValidId(notifId) && isValidNotification(incoming()) &&
         incoming().id == existing().id &&
@@ -354,7 +354,7 @@ service cloud.firestore {
 
     match /portal_files/{chunkId} {
       allow get: if isValidId(chunkId);
-      allow list: if resource.data is map && resource.data.fileId is string;
+      allow list: if request.query.limit is int && request.query.limit >= 1 && request.query.limit <= 50;
       allow create: if isValidId(chunkId) && isValidPortalFileChunk(incoming()) && incoming().id == chunkId;
       allow update: if false;
       allow delete: if isValidId(chunkId) && existing() is map;

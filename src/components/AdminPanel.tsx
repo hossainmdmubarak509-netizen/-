@@ -441,15 +441,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       operator: offerForm.operator,
       title: offerForm.title.trim(),
       category: offerForm.category,
-      description: offerForm.description.trim() || undefined,
+      description: offerForm.description.trim(),
       regularPrice: Number(offerForm.regularPrice) || 0,
       offerPrice: Number(offerForm.offerPrice) || 0,
       validity: offerForm.validity.trim() || '৩০ দিন',
       division: offerForm.division.trim() || 'সারাদেশে চলবে',
       commission: Math.max(0, (Number(offerForm.regularPrice) || 0) - (Number(offerForm.offerPrice) || 0)),
-      tag: offerForm.tag.trim() || undefined,
+      tag: offerForm.tag.trim(),
       active: offerForm.active,
-      createdAt: new Date().toISOString(),
+      ...(offerModalMode === 'create' ? { createdAt: new Date().toISOString() } : {}),
     };
 
     if (offerModalMode === 'create') {

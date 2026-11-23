@@ -5,7 +5,9 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
+  query,
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
@@ -166,7 +168,7 @@ export default function App() {
         }
 
         // 2. Ensure core users exist in Firestore (Admin & Demo Customer + Initial seed if empty)
-        const usersSnap = await getDocs(collection(db, 'portal_users'));
+        const usersSnap = await getDocs(query(collection(db, 'portal_users'), limit(500)));
         const existingUserIds = new Set(usersSnap.docs.map((d) => d.id));
         if (usersSnap.empty) {
           for (const u of INITIAL_USERS) {
@@ -183,7 +185,7 @@ export default function App() {
         }
 
         // 3. Seed Offers if empty
-        const offersSnap = await getDocs(collection(db, 'offers'));
+        const offersSnap = await getDocs(query(collection(db, 'offers'), limit(500)));
         if (offersSnap.empty) {
           for (const off of INITIAL_OFFERS) {
             await setDoc(doc(db, 'offers', off.id), sanitizeForFirestore(off));
@@ -191,7 +193,7 @@ export default function App() {
         }
 
         // 4. Seed Digital Services if empty
-        const servicesSnap = await getDocs(collection(db, 'digital_services'));
+        const servicesSnap = await getDocs(query(collection(db, 'digital_services'), limit(500)));
         if (servicesSnap.empty) {
           for (const srv of INITIAL_DIGITAL_SERVICES) {
             await setDoc(doc(db, 'digital_services', srv.id), sanitizeForFirestore(srv));
@@ -199,28 +201,28 @@ export default function App() {
         }
 
         // 5. Seed Initial sample history/notifications only if completely fresh DB
-        const addMoneySnap = await getDocs(collection(db, 'add_money_requests'));
+        const addMoneySnap = await getDocs(query(collection(db, 'add_money_requests'), limit(500)));
         if (addMoneySnap.empty && usersSnap.empty) {
           for (const am of INITIAL_ADD_MONEY_REQUESTS) {
             await setDoc(doc(db, 'add_money_requests', am.id), sanitizeForFirestore(am));
           }
         }
 
-        const rechargeSnap = await getDocs(collection(db, 'recharge_requests'));
+        const rechargeSnap = await getDocs(query(collection(db, 'recharge_requests'), limit(500)));
         if (rechargeSnap.empty && usersSnap.empty) {
           for (const rc of INITIAL_RECHARGE_REQUESTS) {
             await setDoc(doc(db, 'recharge_requests', rc.id), sanitizeForFirestore(rc));
           }
         }
 
-        const nidSnap = await getDocs(collection(db, 'nid_orders'));
+        const nidSnap = await getDocs(query(collection(db, 'nid_orders'), limit(500)));
         if (nidSnap.empty && usersSnap.empty) {
           for (const ord of INITIAL_NID_ORDERS) {
             await setDoc(doc(db, 'nid_orders', ord.id), sanitizeForFirestore(ord));
           }
         }
 
-        const notifSnap = await getDocs(collection(db, 'admin_notifications'));
+        const notifSnap = await getDocs(query(collection(db, 'admin_notifications'), limit(500)));
         if (notifSnap.empty && usersSnap.empty) {
           for (const n of INITIAL_NOTIFICATIONS) {
             await setDoc(doc(db, 'admin_notifications', n.id), sanitizeForFirestore(n));
@@ -260,7 +262,7 @@ export default function App() {
     );
 
     const unsubUsers = onSnapshot(
-      collection(db, 'portal_users'),
+      query(collection(db, 'portal_users'), limit(500)),
       (snap) => {
         const list = snap.docs.map((d) => d.data() as User);
         if (list.length > 0) {
@@ -272,7 +274,7 @@ export default function App() {
     );
 
     const unsubOffers = onSnapshot(
-      collection(db, 'offers'),
+      query(collection(db, 'offers'), limit(500)),
       (snap) => {
         const list = snap.docs.map((d) => d.data() as DriveOffer);
         list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -282,7 +284,7 @@ export default function App() {
     );
 
     const unsubServices = onSnapshot(
-      collection(db, 'digital_services'),
+      query(collection(db, 'digital_services'), limit(500)),
       (snap) => {
         const list = snap.docs.map((d) => d.data() as DigitalServiceItem);
         setDigitalServices(list);
@@ -291,7 +293,7 @@ export default function App() {
     );
 
     const unsubAddMoney = onSnapshot(
-      collection(db, 'add_money_requests'),
+      query(collection(db, 'add_money_requests'), limit(500)),
       (snap) => {
         const list = snap.docs
           .map((d) => d.data() as AddMoneyRequest)
@@ -302,7 +304,7 @@ export default function App() {
     );
 
     const unsubRecharges = onSnapshot(
-      collection(db, 'recharge_requests'),
+      query(collection(db, 'recharge_requests'), limit(500)),
       (snap) => {
         const list = snap.docs
           .map((d) => d.data() as RechargeRequest)
@@ -313,7 +315,7 @@ export default function App() {
     );
 
     const unsubNidOrders = onSnapshot(
-      collection(db, 'nid_orders'),
+      query(collection(db, 'nid_orders'), limit(500)),
       (snap) => {
         const list = snap.docs
           .map((d) => d.data() as NidOrderRequest)
@@ -324,7 +326,7 @@ export default function App() {
     );
 
     const unsubNotifs = onSnapshot(
-      collection(db, 'admin_notifications'),
+      query(collection(db, 'admin_notifications'), limit(500)),
       (snap) => {
         const list = snap.docs
           .map((d) => d.data() as AdminNotification)
@@ -874,6 +876,7 @@ export default function App() {
       await setDoc(doc(db, 'offers', offer.id), offer);
       showToast('নতুন ড্রাইভ অফার সফলভাবে যুক্ত হয়েছে!');
     } catch (error) {
+      showToast('অফার সেভ করতে সমস্যা হয়েছে! আবার চেষ্টা করুন।', 'error');
       handleFirestoreError(error, OperationType.CREATE, `offers/${offer.id}`);
     }
   };
@@ -885,6 +888,7 @@ export default function App() {
       await updateDoc(doc(db, 'offers', offerId), clean);
       showToast('অফার আপডেট হয়েছে!');
     } catch (error) {
+      showToast('অফার আপডেট করতে সমস্যা হয়েছে!', 'error');
       handleFirestoreError(error, OperationType.UPDATE, `offers/${offerId}`);
     }
   };
@@ -895,6 +899,7 @@ export default function App() {
       await deleteDoc(doc(db, 'offers', offerId));
       showToast('অফার মুছে ফেলা হয়েছে।', 'info');
     } catch (error) {
+      showToast('অফার মুছতে সমস্যা হয়েছে!', 'error');
       handleFirestoreError(error, OperationType.DELETE, `offers/${offerId}`);
     }
   };

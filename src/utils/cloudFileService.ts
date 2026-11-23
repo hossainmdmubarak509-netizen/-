@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, limit, query, setDoc, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { saveFileBlob, getAllFileBlobs } from './fileStorage';
 import { triggerFileDownload } from './pdfHelper';
@@ -74,7 +74,7 @@ export async function fetchCloudFileDataUrl(fileId: string): Promise<string | nu
   }
 
   try {
-    const q = query(collection(db, 'portal_files'), where('fileId', '==', fileId));
+    const q = query(collection(db, 'portal_files'), where('fileId', '==', fileId), limit(50));
     const snap = await getDocs(q);
     if (snap.empty) return null;
 
