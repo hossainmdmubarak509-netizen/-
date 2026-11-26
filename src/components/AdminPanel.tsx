@@ -72,6 +72,7 @@ import {
 } from '../utils/externalAlertHelper';
 import { AdminDailySummaryCards } from './AdminDailySummaryCards';
 import { AdminPerformanceCharts } from './AdminPerformanceCharts';
+import { AdminGlobalSearchBar } from './AdminGlobalSearchBar';
 
 interface AdminPanelProps {
   users: User[];
@@ -834,6 +835,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </button>
           </div>
         )}
+
+      {/* Global Order Search Bar (TrxID, Customer Phone, or Customer Name) */}
+      <AdminGlobalSearchBar
+        nidOrders={nidOrders}
+        rechargeRequests={rechargeRequests}
+        addMoneyRequests={addMoneyRequests}
+        onNavigateToOrder={(tab, trxQuery) => {
+          setAdminTab(tab);
+          if (tab === 'nid-orders' && trxQuery) {
+            setNidStatusFilter('all');
+            setNidSearchQuery(trxQuery);
+          }
+        }}
+        onCompleteRecharge={onCompleteRecharge}
+        onApproveAddMoney={onApproveAddMoney}
+      />
 
       {/* Admin Tab Switcher */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-1.5 flex gap-1 overflow-x-auto scrollbar-none">
