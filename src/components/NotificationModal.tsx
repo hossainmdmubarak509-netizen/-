@@ -129,6 +129,23 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           </div>
         </div>
 
+        {/* Direct shortcut to ntfy / Telegram mobile push setup */}
+        <div className="px-5 py-2.5 bg-emerald-50 border-b border-emerald-200 flex items-center justify-between gap-2 text-xs">
+          <span className="text-emerald-900 font-semibold">
+            সাইট বন্ধ থাকলেও ফোনে অ্যালার্ট পেতে:
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              onNavigateToOrder('system');
+              onClose();
+            }}
+            className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold whitespace-nowrap shadow-2xs"
+          >
+            ntfy / টেলিগ্রাম সেটআপ →
+          </button>
+        </div>
+
         {/* Action bar */}
         <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs text-slate-600">
           <span className="font-medium">মোট {notifications.length} টি নোটিফিকেশন</span>

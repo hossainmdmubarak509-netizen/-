@@ -585,7 +585,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                if (!ntfyTopic.trim()) {
+                  const generated = generateSecretNtfyTopic();
+                  setNtfyTopic(generated);
+                  setNtfyEnabled(true);
+                  onUpdateNotificationSettings({
+                    ntfyEnabled: true,
+                    ntfyTopic: generated,
+                  });
+                }
+                setAdminTab('notifications');
+              }}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center gap-1.5 transition-colors shadow-xs"
+              title="ফোনে ntfy ও টেলিগ্রাম অ্যালার্ট সেটআপ করুন"
+            >
+              <BellRing className="w-4 h-4" />
+              <span>ফোনে অ্যালার্ট (ntfy)</span>
+            </button>
             <button
               onClick={handleOpenCreateService}
               className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center gap-1.5 transition-colors shadow-xs"
@@ -667,6 +686,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       </div>
 
+      {/* Quick Alert Setup Banner if neither ntfy nor Telegram is configured yet */}
+      {!(settings.notifications.ntfyEnabled && settings.notifications.ntfyTopic) &&
+        !(settings.notifications.telegramEnabled && settings.notifications.telegramBotToken) &&
+        adminTab !== 'notifications' && (
+          <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <BellRing className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-xs sm:text-sm text-emerald-950">
+                  ntfy অ্যাপ ইন্সটল করেছেন? ১ ক্লিকেই ফোনে অর্ডার অ্যালার্ট চালু করুন!
+                </h3>
+                <p className="text-[11px] text-emerald-800 mt-0.5">
+                  টপিক নাম তৈরি করে ntfy অ্যাপে যুক্ত করলেই সাইট বন্ধ থাকলেও হোয়াটসঅ্যাপের মতো নোটিফিকেশন পাবেন।
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const topicToUse = ntfyTopic.trim() || generateSecretNtfyTopic();
+                setNtfyTopic(topicToUse);
+                setNtfyEnabled(true);
+                onUpdateNotificationSettings({
+                  ntfyEnabled: true,
+                  ntfyTopic: topicToUse,
+                });
+                setAdminTab('notifications');
+              }}
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs whitespace-nowrap shadow-xs"
+            >
+              টপিক নাম দেখুন ও চালু করুন →
+            </button>
+          </div>
+        )}
+
       {/* Admin Tab Switcher */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-1.5 flex gap-1 overflow-x-auto scrollbar-none">
         
@@ -684,6 +740,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {pendingNidOrders.length > 0 && (
             <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-extrabold text-[10px]">
               {pendingNidOrders.length}
+            </span>
+          )}
+        </button>
+
+        {/* 1.5 Notifications & Phone Alerts (Moved right to #2 so it's immediately visible on mobile!) */}
+        <button
+          onClick={() => setAdminTab('notifications')}
+          className={`flex-1 min-w-[155px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            adminTab === 'notifications'
+              ? 'bg-emerald-600 text-white shadow-xs'
+              : 'text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100'
+          }`}
+        >
+          <BellRing className="w-4 h-4" />
+          <span>নোটিফিকেশন ও অ্যালার্ট</span>
+          {unreadNotificationsCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-extrabold text-[10px] animate-pulse font-mono-nums">
+              {unreadNotificationsCount}
             </span>
           )}
         </button>
@@ -790,24 +864,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         >
           <Settings className="w-4 h-4" />
           <span>সেটিংস</span>
-        </button>
-
-        {/* 8. Notifications */}
-        <button
-          onClick={() => setAdminTab('notifications')}
-          className={`flex-1 min-w-[130px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-            adminTab === 'notifications'
-              ? 'bg-indigo-600 text-white shadow-xs'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-          }`}
-        >
-          <Bell className="w-4 h-4 text-amber-300" />
-          <span>নোটিফিকেশন</span>
-          {unreadNotificationsCount > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-white font-extrabold text-[10px] animate-pulse font-mono-nums">
-              {unreadNotificationsCount}
-            </span>
-          )}
         </button>
       </div>
 
@@ -2262,7 +2318,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </ol>
 
                   <div className="space-y-2 text-xs">
-                    <label className="block font-bold text-slate-700">আপনার সিক্রেট ntfy টপিক নাম</label>
+                    <label className="block font-bold text-slate-700">আপনার সিক্রেট ntfy টপিক নাম (এটি কপি করে ntfy অ্যাপে দিন)</label>
+                    {ntfyTopic.trim() && (
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between gap-2">
+                        <span className="font-mono-nums font-extrabold text-sm text-emerald-900 select-all break-all">
+                          {ntfyTopic.trim()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(ntfyTopic.trim())}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] flex items-center gap-1 shrink-0"
+                        >
+                          {copiedText === ntfyTopic.trim() ? (
+                            <>
+                              <Check className="w-3.5 h-3.5" />
+                              <span>কপি হয়েছে</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>কপি করুন</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
                     <div className="flex items-center gap-1.5">
                       <input
                         type="text"
@@ -2277,25 +2357,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           const generated = generateSecretNtfyTopic();
                           setNtfyTopic(generated);
                           setNtfyEnabled(true);
+                          onUpdateNotificationSettings({
+                            ntfyEnabled: true,
+                            ntfyTopic: generated,
+                          });
                         }}
-                        className="px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] whitespace-nowrap"
+                        className="px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-[11px] whitespace-nowrap shadow-2xs"
                       >
-                        অটো তৈরি
+                        নতুন নাম তৈরি করুন
                       </button>
-                      {ntfyTopic.trim() && (
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(ntfyTopic.trim())}
-                          className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700"
-                          title="টপিক কপি করুন"
-                        >
-                          {copiedText === ntfyTopic.trim() ? (
-                            <Check className="w-4 h-4 text-emerald-600" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
                     </div>
                   </div>
 
