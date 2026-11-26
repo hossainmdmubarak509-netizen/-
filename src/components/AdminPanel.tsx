@@ -70,6 +70,7 @@ import {
   testNtfyAlert,
   testTelegramAlert,
 } from '../utils/externalAlertHelper';
+import { AdminDailySummaryCards } from './AdminDailySummaryCards';
 
 interface AdminPanelProps {
   users: User[];
@@ -685,6 +686,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Daily Successful Recharges, Drive Offer Sales & Total Revenue Summary Widget */}
+      <AdminDailySummaryCards
+        rechargeRequests={rechargeRequests}
+        nidOrders={nidOrders}
+      />
 
       {/* Quick Alert Setup Banner if neither ntfy nor Telegram is configured yet */}
       {!(settings.notifications.ntfyEnabled && settings.notifications.ntfyTopic) &&
