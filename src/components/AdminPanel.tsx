@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -71,6 +71,7 @@ import {
   testTelegramAlert,
 } from '../utils/externalAlertHelper';
 import { AdminDailySummaryCards } from './AdminDailySummaryCards';
+import { AdminPerformanceCharts } from './AdminPerformanceCharts';
 
 interface AdminPanelProps {
   users: User[];
@@ -114,6 +115,7 @@ interface AdminPanelProps {
     tab: 'nid-orders' | 'drive-orders' | 'add-money' | 'recharges' | 'notifications';
     nonce: number;
   } | null;
+  onRefreshDashboardData?: () => Promise<void>;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -148,10 +150,61 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onBackToUserView,
   onLogout,
   externalTabTrigger,
+  onRefreshDashboardData,
 }) => {
   const [adminTab, setAdminTab] = useState<
     'nid-orders' | 'services-builder' | 'drive-orders' | 'offers' | 'add-money' | 'recharges' | 'users' | 'notice-broadcast' | 'settings' | 'notifications'
   >('nid-orders');
+
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState(30);
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string>(() =>
+    new Date().toLocaleTimeString('bn-BD', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  );
+  const isRefreshingRef = useRef(false);
+
+  const runDashboardRefresh = useCallback(async () => {
+    if (!onRefreshDashboardData || isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    setIsManualRefreshing(true);
+    try {
+      await onRefreshDashboardData();
+      setLastSyncedAt(
+        new Date().toLocaleTimeString('bn-BD', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      );
+      setAutoRefreshCountdown(30);
+    } finally {
+      isRefreshingRef.current = false;
+      setIsManualRefreshing(false);
+    }
+  }, [onRefreshDashboardData]);
+
+  useEffect(() => {
+    if (!autoRefreshEnabled || !onRefreshDashboardData) return;
+
+    const tickTimer = window.setInterval(() => {
+      setAutoRefreshCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => {
+      window.clearInterval(tickTimer);
+    };
+  }, [autoRefreshEnabled, onRefreshDashboardData]);
+
+  useEffect(() => {
+    if (autoRefreshEnabled && autoRefreshCountdown === 0) {
+      void runDashboardRefresh();
+    }
+  }, [autoRefreshEnabled, autoRefreshCountdown, runDashboardRefresh]);
 
   useEffect(() => {
     if (externalTabTrigger?.tab) {
@@ -587,6 +640,55 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* 30-second Auto-refresh Toggle & Instant Sync */}
+            <div className="flex items-center gap-1 bg-slate-800/90 border border-slate-700 rounded-xl p-1">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoRefreshEnabled}
+                onClick={() => {
+                  const next = !autoRefreshEnabled;
+                  setAutoRefreshEnabled(next);
+                  if (next) {
+                    setAutoRefreshCountdown(30);
+                    void runDashboardRefresh();
+                  }
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                  autoRefreshEnabled
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title="প্রতি ৩০ সেকেন্ডে স্বয়ংক্রিয়ভাবে নতুন অর্ডার ও স্ট্যাটাস রিফ্রেশ করুন"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    autoRefreshEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                  }`}
+                />
+                <span>অটো-রিফ্রেশ</span>
+                {autoRefreshEnabled ? (
+                  <span className="font-mono-nums text-[10px] text-emerald-200">
+                    ({autoRefreshCountdown}সে)
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-400">(বন্ধ)</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void runDashboardRefresh()}
+                disabled={isManualRefreshing}
+                className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-60 transition-colors"
+                title={`এখনই রিফ্রেশ করুন (সর্বশেষ আপডেট: ${lastSyncedAt})`}
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${isManualRefreshing ? 'animate-spin text-emerald-400' : ''}`}
+                />
+              </button>
+            </div>
+
             <button
               onClick={() => {
                 if (!ntfyTopic.trim()) {
@@ -692,6 +794,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         rechargeRequests={rechargeRequests}
         nidOrders={nidOrders}
       />
+
+      {/* 7-Day Trend Charts for Successful Recharges & Drive Offers */}
+      <AdminPerformanceCharts rechargeRequests={rechargeRequests} />
 
       {/* Quick Alert Setup Banner if neither ntfy nor Telegram is configured yet */}
       {!(settings.notifications.ntfyEnabled && settings.notifications.ntfyTopic) &&

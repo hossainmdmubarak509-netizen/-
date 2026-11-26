@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   collection,
   deleteDoc,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
+  getDocsFromServer,
   limit,
   onSnapshot,
   query,
@@ -1124,6 +1126,79 @@ export default function App() {
     }
   };
 
+  // Force re-fetch all dashboard tables & settings directly from Firestore server (bypassing cache)
+  const handleForceRefreshAdminData = useCallback(async () => {
+    const fetchCollection = async <T,>(
+      colName: string,
+      sortKey?: keyof T
+    ): Promise<T[]> => {
+      try {
+        const snap = await getDocsFromServer(query(collection(db, colName), limit(500)));
+        const list = snap.docs.map((d) => d.data() as T);
+        if (sortKey) {
+          list.sort((a, b) =>
+            String(b[sortKey] || '').localeCompare(String(a[sortKey] || ''))
+          );
+        }
+        return list;
+      } catch (error) {
+        handleFirestoreError(error, OperationType.LIST, colName);
+        return [];
+      }
+    };
+
+    const [
+      settingsRes,
+      usersList,
+      offersList,
+      servicesList,
+      addMoneyList,
+      rechargeList,
+      nidList,
+      notifList,
+    ] = await Promise.all([
+      getDocFromServer(doc(db, 'settings', 'app')).catch((error) => {
+        handleFirestoreError(error, OperationType.GET, 'settings/app');
+        return null;
+      }),
+      fetchCollection<User>('portal_users', 'createdAt'),
+      fetchCollection<DriveOffer>('offers', 'createdAt'),
+      fetchCollection<DigitalServiceItem>('digital_services'),
+      fetchCollection<AddMoneyRequest>('add_money_requests', 'timestamp'),
+      fetchCollection<RechargeRequest>('recharge_requests', 'timestamp'),
+      fetchCollection<NidOrderRequest>('nid_orders', 'timestamp'),
+      fetchCollection<AdminNotification>('admin_notifications', 'timestamp'),
+    ]);
+
+    if (settingsRes && settingsRes.exists()) {
+      const data = settingsRes.data() as Partial<AppSettings>;
+      setSettings({
+        ...INITIAL_SETTINGS,
+        ...data,
+        paymentNumbers: {
+          ...INITIAL_SETTINGS.paymentNumbers,
+          ...(data.paymentNumbers || {}),
+        },
+        nidFees: {
+          ...INITIAL_SETTINGS.nidFees,
+          ...(data.nidFees || {}),
+        },
+        notifications: {
+          ...INITIAL_SETTINGS.notifications,
+          ...(data.notifications || {}),
+        },
+      });
+    }
+
+    if (usersList.length > 0) setUsers(usersList);
+    setOffers(offersList);
+    setDigitalServices(servicesList);
+    setAddMoneyRequests(addMoneyList);
+    setRechargeRequests(rechargeList);
+    setNidOrders(nidList);
+    setNotifications(notifList);
+  }, []);
+
   // Filter requests for currently logged-in user
   const currentUserRecharges = currentUser
     ? rechargeRequests.filter((r) => r.userId === currentUser.id)
@@ -1209,6 +1284,7 @@ export default function App() {
             onBackToUserView={() => setCurrentView('user')}
             onLogout={handleLogout}
             externalTabTrigger={adminTabTrigger}
+            onRefreshDashboardData={handleForceRefreshAdminData}
           />
         ) : (
           <UserDashboard
