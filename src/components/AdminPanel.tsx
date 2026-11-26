@@ -40,6 +40,8 @@ import {
   Send,
   Paperclip,
   AlertCircle,
+  BellRing,
+  MessageCircle,
 } from 'lucide-react';
 import {
   User,
@@ -58,7 +60,16 @@ import {
 import { formatTaka, formatDateTime, OPERATORS } from '../utils/telecomUtils';
 import { generateSampleNidPdf, readFileAsDataUrl } from '../utils/pdfHelper';
 import { downloadOrderFile } from '../utils/cloudFileService';
-import { playNotificationSound, requestBrowserNotificationPermission } from '../utils/soundHelper';
+import {
+  playNotificationSound,
+  requestBrowserNotificationPermission,
+  sendBrowserNotification,
+} from '../utils/soundHelper';
+import {
+  generateSecretNtfyTopic,
+  testNtfyAlert,
+  testTelegramAlert,
+} from '../utils/externalAlertHelper';
 
 interface AdminPanelProps {
   users: User[];
@@ -98,6 +109,10 @@ interface AdminPanelProps {
   onResetDemoData: () => void;
   onBackToUserView: () => void;
   onLogout: () => void;
+  externalTabTrigger?: {
+    tab: 'nid-orders' | 'drive-orders' | 'add-money' | 'recharges' | 'notifications';
+    nonce: number;
+  } | null;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
@@ -131,10 +146,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onResetDemoData,
   onBackToUserView,
   onLogout,
+  externalTabTrigger,
 }) => {
   const [adminTab, setAdminTab] = useState<
     'nid-orders' | 'services-builder' | 'drive-orders' | 'offers' | 'add-money' | 'recharges' | 'users' | 'notice-broadcast' | 'settings' | 'notifications'
   >('nid-orders');
+
+  useEffect(() => {
+    if (externalTabTrigger?.tab) {
+      setAdminTab(externalTabTrigger.tab);
+    }
+  }, [externalTabTrigger]);
 
   const [notifFilter, setNotifFilter] = useState<'all' | 'unread' | 'recharge' | 'drive_offer' | 'nid_order' | 'add_money'>('all');
 
@@ -227,6 +249,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [whatsappInput, setWhatsappInput] = useState(settings.whatsappNumber || '+8801844868379');
   const [settingsSaved, setSettingsSaved] = useState(false);
 
+  // External Mobile Push Alert setup (ntfy & Telegram)
+  const [ntfyEnabled, setNtfyEnabled] = useState(Boolean(settings.notifications.ntfyEnabled));
+  const [ntfyTopic, setNtfyTopic] = useState(settings.notifications.ntfyTopic || '');
+  const [telegramEnabled, setTelegramEnabled] = useState(Boolean(settings.notifications.telegramEnabled));
+  const [telegramBotToken, setTelegramBotToken] = useState(settings.notifications.telegramBotToken || '');
+  const [telegramChatId, setTelegramChatId] = useState(settings.notifications.telegramChatId || '');
+  const [alertTestStatus, setAlertTestStatus] = useState<{
+    channel: 'ntfy' | 'telegram' | 'browser';
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+  const [isTestingAlert, setIsTestingAlert] = useState<'ntfy' | 'telegram' | null>(null);
+
   // Keep individual settings form fields synced only when their specific section updates
   useEffect(() => {
     setPaymentNumbers(settings.paymentNumbers);
@@ -246,6 +281,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   useEffect(() => {
     setWhatsappInput(settings.whatsappNumber || '+8801844868379');
   }, [settings.whatsappNumber]);
+
+  useEffect(() => {
+    setNtfyEnabled(Boolean(settings.notifications.ntfyEnabled));
+    setNtfyTopic(settings.notifications.ntfyTopic || '');
+    setTelegramEnabled(Boolean(settings.notifications.telegramEnabled));
+    setTelegramBotToken(settings.notifications.telegramBotToken || '');
+    setTelegramChatId(settings.notifications.telegramChatId || '');
+  }, [
+    settings.notifications.ntfyEnabled,
+    settings.notifications.ntfyTopic,
+    settings.notifications.telegramEnabled,
+    settings.notifications.telegramBotToken,
+    settings.notifications.telegramChatId,
+  ]);
 
   // Computed metrics
   const pendingNidOrders = nidOrders.filter((o) => o.status === 'pending');
@@ -688,7 +737,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <Wallet className="w-4 h-4" />
-          <span>অ্যাড মানি</span>
+          <span>অ্যাড মানি ({pendingAddMoney.length})</span>
+        </button>
+
+        {/* 5.5 Recharges */}
+        <button
+          onClick={() => setAdminTab('recharges')}
+          className={`flex-1 min-w-[130px] flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+            adminTab === 'recharges'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+          }`}
+        >
+          <Smartphone className="w-4 h-4" />
+          <span>রিচার্জ ({rechargeRequests.filter((r) => r.type === 'recharge' && r.status === 'pending').length})</span>
         </button>
 
         {/* 6. Users */}
@@ -1537,19 +1599,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* Notification Controls in Settings */}
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <Bell className="w-4 h-4 text-indigo-600" />
                 <span className="font-bold text-slate-900 text-xs">অর্ডার নোটিফিকেশন অপশন</span>
               </div>
-              <button
-                type="button"
-                onClick={() => playNotificationSound()}
-                className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold rounded-lg flex items-center gap-1.5"
-              >
-                <Volume2 className="w-3.5 h-3.5 text-indigo-600" />
-                <span>সাউন্ড টেস্ট</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAdminTab('notifications')}
+                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-[11px] flex items-center gap-1"
+                >
+                  <BellRing className="w-3.5 h-3.5" />
+                  <span>ফোনে সরাসরি পুশ অ্যালার্ট সেটআপ →</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => playNotificationSound()}
+                  className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold rounded-lg flex items-center gap-1.5"
+                >
+                  <Volume2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>সাউন্ড টেস্ট</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -2083,6 +2155,324 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   >
                     {settings.notifications.notifyOnAddMoney ? 'চালু' : 'বন্ধ'}
                   </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Out-of-App WhatsApp-Style Mobile Push Setup (Works even when website is closed!) */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50 via-teal-50/60 to-sky-50 border border-emerald-200/90 mb-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-emerald-200/70">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                    <BellRing className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-sm text-slate-900">
+                      সাইট বন্ধ থাকলেও ফোনে সাথে সাথে নোটিফিকেশন পান (হোয়াটসঅ্যাপের মতো)
+                    </h4>
+                    <p className="text-[11px] text-slate-600 mt-0.5">
+                      নিচের যেকোনো ১টি পদ্ধতি চালু করলে কাস্টমার অর্ডার করার সাথে সাথেই আপনার ফোনের নোটিফিকেশন বারে মেসেজ ও রিংটোন চলে আসবে—ওয়েবসাইট খোলার দরকার হবে না।
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playNotificationSound();
+                    const granted = await requestBrowserNotificationPermission();
+                    onUpdateNotificationSettings({ browserNotificationsEnabled: granted });
+                    if (granted) {
+                      await sendBrowserNotification(
+                        'টেলিকম সেবা - টেস্ট অর্ডার অ্যালার্ট',
+                        'ব্রাউজার পুশ ও সাউন্ড ঠিকমতো কাজ করছে!'
+                      );
+                      setAlertTestStatus({
+                        channel: 'browser',
+                        ok: true,
+                        msg: 'ব্রাউজার নোটিফিকেশন ও সাউন্ড সফলভাবে টেস্ট হয়েছে!',
+                      });
+                    } else {
+                      setAlertTestStatus({
+                        channel: 'browser',
+                        ok: false,
+                        msg: 'ব্রাউজার নোটিফিকেশনের অনুমতি ব্লক করা আছে। Chrome সেটিংস থেকে Allow করুন।',
+                      });
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold whitespace-nowrap shadow-2xs"
+                >
+                  ব্রাউজার পুশ + সাউন্ড টেস্ট
+                </button>
+              </div>
+
+              {alertTestStatus && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border ${
+                    alertTestStatus.ok
+                      ? 'bg-emerald-100/80 text-emerald-900 border-emerald-300'
+                      : 'bg-rose-50 text-rose-800 border-rose-200'
+                  }`}
+                >
+                  {alertTestStatus.ok ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  )}
+                  <span>{alertTestStatus.msg}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Method 1: ntfy Mobile App (Easiest - Zero Account Needed) */}
+                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 font-extrabold text-xs flex items-center justify-center">
+                        ১
+                      </span>
+                      <div>
+                        <h5 className="font-bold text-xs sm:text-sm text-slate-900">
+                          ntfy মোবাইল পুশ অ্যাপ (সবচেয়ে সহজ)
+                        </h5>
+                        <p className="text-[11px] text-slate-500">কোনো অ্যাকাউন্ট বা Bot লাগে না · ১০০% ফ্রি</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !ntfyEnabled;
+                        setNtfyEnabled(next);
+                        onUpdateNotificationSettings({
+                          ntfyEnabled: next,
+                          ntfyTopic: ntfyTopic.trim(),
+                        });
+                      }}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition-colors ${
+                        ntfyEnabled ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {ntfyEnabled ? 'চালু আছে' : 'বন্ধ'}
+                    </button>
+                  </div>
+
+                  <ol className="text-[11px] text-slate-600 space-y-1 bg-slate-50 p-2.5 rounded-xl border border-slate-100 list-decimal list-inside">
+                    <li>Play Store বা App Store থেকে ফ্রি <b>ntfy</b> অ্যাপ ইনস্টল করুন।</li>
+                    <li>নিচের <b>অটো তৈরি</b> বাটনে চাপ দিয়ে সিক্রেট নাম কপি করুন।</li>
+                    <li>ফোনের ntfy অ্যাপে <b>+</b> চেপে ওই নামটি দিয়ে <b>Subscribe</b> করুন।</li>
+                  </ol>
+
+                  <div className="space-y-2 text-xs">
+                    <label className="block font-bold text-slate-700">আপনার সিক্রেট ntfy টপিক নাম</label>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={ntfyTopic}
+                        onChange={(e) => setNtfyTopic(e.target.value)}
+                        placeholder="যেমন: bd-telecom-alert-9283"
+                        className="flex-1 min-w-0 p-2 rounded-xl border border-slate-200 focus:border-emerald-600 outline-none font-mono-nums text-xs bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const generated = generateSecretNtfyTopic();
+                          setNtfyTopic(generated);
+                          setNtfyEnabled(true);
+                        }}
+                        className="px-2.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-[11px] whitespace-nowrap"
+                      >
+                        অটো তৈরি
+                      </button>
+                      {ntfyTopic.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(ntfyTopic.trim())}
+                          className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700"
+                          title="টপিক কপি করুন"
+                        >
+                          {copiedText === ntfyTopic.trim() ? (
+                            <Check className="w-4 h-4 text-emerald-600" />
+                          ) : (
+                            <Copy className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateNotificationSettings({
+                          ntfyEnabled,
+                          ntfyTopic: ntfyTopic.trim(),
+                        });
+                        setAlertTestStatus({
+                          channel: 'ntfy',
+                          ok: true,
+                          msg: 'ntfy পুশ সেটিংস সংরক্ষণ করা হয়েছে!',
+                        });
+                      }}
+                      className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>সেভ করুন</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isTestingAlert === 'ntfy'}
+                      onClick={async () => {
+                        const clean = ntfyTopic.trim();
+                        if (!clean) {
+                          setAlertTestStatus({
+                            channel: 'ntfy',
+                            ok: false,
+                            msg: 'আগে একটি ntfy টপিক নাম লিখুন বা "অটো তৈরি" বাটনে চাপ দিন।',
+                          });
+                          return;
+                        }
+                        setIsTestingAlert('ntfy');
+                        onUpdateNotificationSettings({
+                          ntfyEnabled: true,
+                          ntfyTopic: clean,
+                        });
+                        setNtfyEnabled(true);
+                        const res = await testNtfyAlert(clean);
+                        setIsTestingAlert(null);
+                        setAlertTestStatus({
+                          channel: 'ntfy',
+                          ok: res.ok,
+                          msg: res.ok
+                            ? 'টেস্ট পুশ পাঠানো হয়েছে! ফোনের ntfy অ্যাপে এখনই নোটিফিকেশন চেক করুন।'
+                            : `পাঠানো যায়নি: ${res.error}`,
+                        });
+                      }}
+                      className="flex-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isTestingAlert === 'ntfy' ? 'পাঠানো হচ্ছে...' : 'সেভ ও টেস্ট পুশ পাঠান'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Method 2: Telegram Bot Instant Message */}
+                <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-2xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-lg bg-sky-100 text-sky-700 font-extrabold text-xs flex items-center justify-center">
+                        <MessageCircle className="w-4 h-4" />
+                      </span>
+                      <div>
+                        <h5 className="font-bold text-xs sm:text-sm text-slate-900">
+                          টেলিগ্রাম (Telegram) অটো মেসেজ
+                        </h5>
+                        <p className="text-[11px] text-slate-500">সরাসরি আপনার টেলিগ্রামে অর্ডার মেসেজ যাবে</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = !telegramEnabled;
+                        setTelegramEnabled(next);
+                        onUpdateNotificationSettings({
+                          telegramEnabled: next,
+                          telegramBotToken: telegramBotToken.trim(),
+                          telegramChatId: telegramChatId.trim(),
+                        });
+                      }}
+                      className={`px-3 py-1 rounded-xl text-xs font-bold transition-colors ${
+                        telegramEnabled ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {telegramEnabled ? 'চালু আছে' : 'বন্ধ'}
+                    </button>
+                  </div>
+
+                  <ol className="text-[11px] text-slate-600 space-y-1 bg-slate-50 p-2.5 rounded-xl border border-slate-100 list-decimal list-inside">
+                    <li>Telegram-এ <b>@BotFather</b> এ গিয়ে <code>/newbot</code> দিয়ে Bot Token নিন এবং আপনার Bot-এ <b>Start</b> চাপুন।</li>
+                    <li><b>@userinfobot</b> এ মেসেজ দিয়ে আপনার নিজের <b>Chat ID</b> সংখ্যাটি নিন।</li>
+                  </ol>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Bot Token</label>
+                      <input
+                        type="password"
+                        value={telegramBotToken}
+                        onChange={(e) => setTelegramBotToken(e.target.value)}
+                        placeholder="123456:ABC-DEF..."
+                        className="w-full p-2 rounded-xl border border-slate-200 focus:border-sky-600 outline-none font-mono-nums text-xs bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">আপনার Chat ID</label>
+                      <input
+                        type="text"
+                        value={telegramChatId}
+                        onChange={(e) => setTelegramChatId(e.target.value)}
+                        placeholder="যেমন: 5123456789"
+                        className="w-full p-2 rounded-xl border border-slate-200 focus:border-sky-600 outline-none font-mono-nums text-xs bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateNotificationSettings({
+                          telegramEnabled,
+                          telegramBotToken: telegramBotToken.trim(),
+                          telegramChatId: telegramChatId.trim(),
+                        });
+                        setAlertTestStatus({
+                          channel: 'telegram',
+                          ok: true,
+                          msg: 'টেলিগ্রাম অ্যালার্ট সেটিংস সংরক্ষণ করা হয়েছে!',
+                        });
+                      }}
+                      className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>সেভ করুন</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isTestingAlert === 'telegram'}
+                      onClick={async () => {
+                        const tok = telegramBotToken.trim();
+                        const cid = telegramChatId.trim();
+                        if (!tok || !cid) {
+                          setAlertTestStatus({
+                            channel: 'telegram',
+                            ok: false,
+                            msg: 'Bot Token এবং Chat ID দুটোই দিন।',
+                          });
+                          return;
+                        }
+                        setIsTestingAlert('telegram');
+                        onUpdateNotificationSettings({
+                          telegramEnabled: true,
+                          telegramBotToken: tok,
+                          telegramChatId: cid,
+                        });
+                        setTelegramEnabled(true);
+                        const res = await testTelegramAlert(tok, cid);
+                        setIsTestingAlert(null);
+                        setAlertTestStatus({
+                          channel: 'telegram',
+                          ok: res.ok,
+                          msg: res.ok
+                            ? 'টেস্ট টেলিগ্রাম মেসেজ পাঠানো হয়েছে! এখনই আপনার Telegram চেক করুন।'
+                            : `পাঠানো যায়নি: ${res.error}`,
+                        });
+                      }}
+                      className="flex-1 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-60 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isTestingAlert === 'telegram' ? 'পাঠানো হচ্ছে...' : 'সেভ ও টেস্ট মেসেজ পাঠান'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

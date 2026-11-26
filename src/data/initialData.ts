@@ -377,6 +377,11 @@ export const INITIAL_SETTINGS: AppSettings = {
     notifyOnDriveOffer: true,
     notifyOnNidOrder: true,
     notifyOnAddMoney: true,
+    ntfyEnabled: false,
+    ntfyTopic: '',
+    telegramEnabled: false,
+    telegramBotToken: '',
+    telegramChatId: '',
   },
   whatsappNumber: '+8801844868379',
 };

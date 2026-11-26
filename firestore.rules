@@ -72,6 +72,22 @@ service cloud.firestore {
           'soundEnabled', 'browserNotificationsEnabled', 'notifyOnRecharge',
           'notifyOnDriveOffer', 'notifyOnNidOrder', 'notifyOnAddMoney'
         ]) &&
+        data.notifications.keys().hasOnly([
+          'soundEnabled', 'browserNotificationsEnabled', 'notifyOnRecharge',
+          'notifyOnDriveOffer', 'notifyOnNidOrder', 'notifyOnAddMoney',
+          'ntfyEnabled', 'ntfyTopic', 'telegramEnabled', 'telegramBotToken', 'telegramChatId'
+        ]) &&
+        data.notifications.soundEnabled is bool &&
+        data.notifications.browserNotificationsEnabled is bool &&
+        data.notifications.notifyOnRecharge is bool &&
+        data.notifications.notifyOnDriveOffer is bool &&
+        data.notifications.notifyOnNidOrder is bool &&
+        data.notifications.notifyOnAddMoney is bool &&
+        (!('ntfyEnabled' in data.notifications) || data.notifications.ntfyEnabled is bool) &&
+        (!('ntfyTopic' in data.notifications) || isStr(data.notifications.ntfyTopic, 0, 120)) &&
+        (!('telegramEnabled' in data.notifications) || data.notifications.telegramEnabled is bool) &&
+        (!('telegramBotToken' in data.notifications) || isStr(data.notifications.telegramBotToken, 0, 150)) &&
+        (!('telegramChatId' in data.notifications) || isStr(data.notifications.telegramChatId, 0, 80)) &&
         isStr(data.whatsappNumber, 0, 40);
     }
 

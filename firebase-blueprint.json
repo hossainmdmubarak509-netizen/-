@@ -14,7 +14,10 @@
         "popupNoticeSentAt": { "type": "string", "maxLength": 64 },
         "paymentNumbers": { "type": "object" },
         "nidFees": { "type": "object" },
-        "notifications": { "type": "object" },
+        "notifications": {
+          "type": "object",
+          "description": "Notification preferences including soundEnabled, browserNotificationsEnabled, order category toggles, and optional out-of-app push settings (ntfyEnabled, ntfyTopic, telegramEnabled, telegramBotToken, telegramChatId)."
+        },
         "whatsappNumber": { "type": "string", "maxLength": 40 }
       },
       "required": ["noticeText", "noticeEnabled", "paymentNumbers", "nidFees", "notifications", "whatsappNumber"]

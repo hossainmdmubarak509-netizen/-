@@ -151,6 +151,11 @@ export interface NotificationSettings {
   notifyOnDriveOffer: boolean;
   notifyOnNidOrder: boolean;
   notifyOnAddMoney: boolean;
+  ntfyEnabled?: boolean;
+  ntfyTopic?: string;
+  telegramEnabled?: boolean;
+  telegramBotToken?: string;
+  telegramChatId?: string;
 }
 
 export interface AppSettings {

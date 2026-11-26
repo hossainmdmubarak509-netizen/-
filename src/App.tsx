@@ -38,7 +38,8 @@ import {
   UploadedFileAttachment,
 } from './types/telecom';
 import { generateTrxId, formatTaka } from './utils/telecomUtils';
-import { playNotificationSound, sendBrowserNotification } from './utils/soundHelper';
+import { playNotificationSound, registerNotificationServiceWorker, sendBrowserNotification } from './utils/soundHelper';
+import { sendExternalAdminAlerts } from './utils/externalAlertHelper';
 import { uploadCloudFile } from './utils/cloudFileService';
 import { hashPassword } from './utils/passwordHelper';
 import { Navbar } from './components/Navbar';
@@ -50,7 +51,7 @@ import { ReceiptModal } from './components/ReceiptModal';
 import { NotificationModal } from './components/NotificationModal';
 import { SideMenuDrawer } from './components/SideMenuDrawer';
 import { CustomerNoticeModal } from './components/CustomerNoticeModal';
-import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Info, BellRing, ArrowRight, X } from 'lucide-react';
 
 const SESSION_USER_ID_KEY = 'bd_telecom_portal_current_user_id';
 
@@ -104,8 +105,27 @@ export default function App() {
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [dismissedPopupNoticeKey, setDismissedPopupNoticeKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [liveAdminAlert, setLiveAdminAlert] = useState<AdminNotification | null>(null);
+  const [adminTabTrigger, setAdminTabTrigger] = useState<{
+    tab: 'nid-orders' | 'drive-orders' | 'add-money' | 'recharges' | 'notifications';
+    nonce: number;
+  } | null>(null);
 
   const seededRef = useRef(false);
+  const seenNotifIdsRef = useRef<Set<string> | null>(null);
+  const isAdminSession = Boolean(
+    currentUser && currentUser.role === 'admin' && currentUser.phone === '01844868379'
+  );
+  const isAdminSessionRef = useRef(isAdminSession);
+  const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    isAdminSessionRef.current = isAdminSession;
+  }, [isAdminSession]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   // Save only current session user ID locally so reload remembers who is signed in
   useEffect(() => {
@@ -151,9 +171,10 @@ export default function App() {
     }
   }, [users, currentUser?.id]);
 
-  // Boot Firestore connection check, idempotent initial seeding, and live onSnapshot listeners
+  // Boot Firestore connection check, SW registration, idempotent initial seeding, and live onSnapshot listeners
   useEffect(() => {
     void testConnection();
+    void registerNotificationServiceWorker();
 
     const seedCloudDatabaseIfEmpty = async () => {
       if (seededRef.current) return;
@@ -332,6 +353,29 @@ export default function App() {
           .map((d) => d.data() as AdminNotification)
           .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
         setNotifications(list);
+
+        if (seenNotifIdsRef.current === null) {
+          seenNotifIdsRef.current = new Set(list.map((n) => n.id));
+        } else {
+          const freshUnread = list.filter(
+            (n) => !n.read && !seenNotifIdsRef.current!.has(n.id)
+          );
+          for (const n of list) {
+            seenNotifIdsRef.current.add(n.id);
+          }
+
+          if (isAdminSessionRef.current && freshUnread.length > 0) {
+            const latest = freshUnread[0];
+            const cfg = settingsRef.current.notifications;
+            if (cfg.soundEnabled) {
+              playNotificationSound();
+            }
+            if (cfg.browserNotificationsEnabled) {
+              void sendBrowserNotification(latest.title, latest.message, latest.id);
+            }
+            setLiveAdminAlert(latest);
+          }
+        }
       },
       (error) => handleFirestoreError(error, OperationType.LIST, 'admin_notifications')
     );
@@ -396,7 +440,7 @@ export default function App() {
     }
   };
 
-  // Central Admin Notification Dispatcher with Sound, Browser Push & Cloud Sync
+  // Central Admin Notification Dispatcher: Cloud Feed + Out-of-App Mobile Push (ntfy / Telegram)
   const triggerAdminNotification = async ({
     type,
     title,
@@ -440,12 +484,26 @@ export default function App() {
       handleFirestoreError(error, OperationType.CREATE, `admin_notifications/${newNotif.id}`);
     }
 
-    if (notifConfig.soundEnabled) {
-      playNotificationSound();
-    }
-    if (notifConfig.browserNotificationsEnabled) {
-      sendBrowserNotification(title, message);
-    }
+    // Fire instant phone push alerts (ntfy / Telegram) so Admin knows even when site is closed
+    void sendExternalAdminAlerts(notifConfig, {
+      type,
+      title,
+      message,
+      amount,
+      customerName,
+      customerPhone,
+      targetRefId,
+    });
+  };
+
+  const navigateToAdminOrderTab = (type: AdminNotification['type']) => {
+    let tab: 'nid-orders' | 'drive-orders' | 'add-money' | 'recharges' | 'notifications' = 'notifications';
+    if (type === 'nid_order') tab = 'nid-orders';
+    else if (type === 'drive_offer') tab = 'drive-orders';
+    else if (type === 'recharge') tab = 'recharges';
+    else if (type === 'add_money') tab = 'add-money';
+    setCurrentView('admin');
+    setAdminTabTrigger({ tab, nonce: Date.now() });
   };
 
   // Recharge Submission
@@ -1150,6 +1208,7 @@ export default function App() {
             onResetDemoData={handleResetDemoData}
             onBackToUserView={() => setCurrentView('user')}
             onLogout={handleLogout}
+            externalTabTrigger={adminTabTrigger}
           />
         ) : (
           <UserDashboard
@@ -1216,10 +1275,56 @@ export default function App() {
           onDeleteNotification={handleDeleteNotification}
           onClearAll={handleClearAllNotifications}
           onToggleSound={(soundEnabled) => handleUpdateNotificationSettings({ soundEnabled })}
-          onNavigateToOrder={() => {
-            handleToggleView('admin');
+          onNavigateToOrder={(type) => {
+            navigateToAdminOrderTab(type);
           }}
         />
+      )}
+
+      {/* 5.5 Live Incoming Order Floating Alert (WhatsApp-style on Admin Device) */}
+      {isAdminSession && liveAdminAlert && (
+        <div className="fixed top-16 right-3 left-3 sm:left-auto sm:w-96 z-50 bg-slate-900 text-white rounded-2xl shadow-2xl border-2 border-amber-400/90 p-4 animate-in slide-in-from-top-5 duration-200">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 animate-bounce">
+              <BellRing className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                  নতুন অর্ডার এসেছে!
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLiveAdminAlert(null)}
+                  className="text-slate-400 hover:text-white p-0.5 rounded"
+                  aria-label="বন্ধ করুন"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <h4 className="font-bold text-sm text-white mt-1 leading-snug">
+                {liveAdminAlert.title}
+              </h4>
+              <p className="text-xs text-slate-300 mt-1 line-clamp-2">
+                {liveAdminAlert.message}
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleMarkNotificationAsRead(liveAdminAlert.id);
+                    navigateToAdminOrderTab(liveAdminAlert.type);
+                    setLiveAdminAlert(null);
+                  }}
+                  className="flex-1 py-2 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <span>এখনই অর্ডার দেখুন</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Customer Entrance Notice Popup (Shown once per website entry / new notice) */}
