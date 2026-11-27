@@ -19,6 +19,7 @@ import { DriveOffersTab } from './DriveOffersTab';
 import { NidServicesTab } from './NidServicesTab';
 import { AddMoneyTab } from './AddMoneyTab';
 import { HistoryTab } from './HistoryTab';
+import { LiveClockWidget } from './LiveClockWidget';
 
 interface UserDashboardProps {
   currentUser: User;
@@ -84,7 +85,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   return (
     <div className="space-y-6">
-      
+      {/* Real-Time Digital Clock & Date */}
+      <LiveClockWidget variant="customer" />
+
       {!isDedicatedNidOrderPage && (
         <>
           {/* Wallet Balance Hero Card */}

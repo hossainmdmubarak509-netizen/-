@@ -26,3 +26,40 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+@keyframes notice-marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-notice-marquee-fast {
+  display: flex;
+  width: max-content;
+  animation: notice-marquee 18s linear infinite;
+}
+
+.animate-notice-marquee-medium {
+  display: flex;
+  width: max-content;
+  animation: notice-marquee 28s linear infinite;
+}
+
+.animate-notice-marquee-slow {
+  display: flex;
+  width: max-content;
+  animation: notice-marquee 42s linear infinite;
+}
+
+.notice-marquee-container:hover .animate-notice-marquee-fast,
+.notice-marquee-container:hover .animate-notice-marquee-medium,
+.notice-marquee-container:hover .animate-notice-marquee-slow,
+.notice-marquee-container:active .animate-notice-marquee-fast,
+.notice-marquee-container:active .animate-notice-marquee-medium,
+.notice-marquee-container:active .animate-notice-marquee-slow {
+  animation-play-state: paused;
+}
+

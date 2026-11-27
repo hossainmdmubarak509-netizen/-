@@ -70,9 +70,8 @@ import {
   testNtfyAlert,
   testTelegramAlert,
 } from '../utils/externalAlertHelper';
-import { AdminDailySummaryCards } from './AdminDailySummaryCards';
-import { AdminPerformanceCharts } from './AdminPerformanceCharts';
 import { AdminGlobalSearchBar } from './AdminGlobalSearchBar';
+import { LiveClockWidget } from './LiveClockWidget';
 
 interface AdminPanelProps {
   users: User[];
@@ -742,8 +741,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
 
+        {/* Real-Time Digital Clock & Date */}
+        <LiveClockWidget variant="admin" />
+
         {/* 4 Key Performance Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-800">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5 pt-5 border-t border-slate-800">
           <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700/80">
             <span className="text-[11px] text-slate-400 font-medium">পেন্ডিং এনআইডি ও পিডিএফ</span>
             <div className="mt-1 flex items-baseline justify-between">
@@ -789,15 +791,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Daily Successful Recharges, Drive Offer Sales & Total Revenue Summary Widget */}
-      <AdminDailySummaryCards
-        rechargeRequests={rechargeRequests}
-        nidOrders={nidOrders}
-      />
-
-      {/* 7-Day Trend Charts for Successful Recharges & Drive Offers */}
-      <AdminPerformanceCharts rechargeRequests={rechargeRequests} />
 
       {/* Quick Alert Setup Banner if neither ntfy nor Telegram is configured yet */}
       {!(settings.notifications.ntfyEnabled && settings.notifications.ntfyTopic) &&
