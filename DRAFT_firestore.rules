@@ -150,7 +150,8 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'userId', 'userName', 'userPhone', 'method', 'senderNumber', 'amount', 'trxId', 'status', 'timestamp']) &&
         data.keys().hasOnly([
           'id', 'userId', 'userName', 'userPhone', 'method',
-          'senderNumber', 'amount', 'trxId', 'status', 'timestamp', 'adminNote'
+          'senderNumber', 'amount', 'trxId', 'status', 'timestamp', 'adminNote',
+          'pdfFileId', 'pdfFileName', 'pdfFileSize', 'pdfDataUrl'
         ]) &&
         isValidId(data.id) &&
         isValidId(data.userId) &&
@@ -162,7 +163,11 @@ service cloud.firestore {
         isStr(data.trxId, 1, 100) &&
         data.status in ['pending', 'approved', 'rejected'] &&
         isStr(data.timestamp, 1, 64) &&
-        (!('adminNote' in data) || isStr(data.adminNote, 0, 500));
+        (!('adminNote' in data) || isStr(data.adminNote, 0, 500)) &&
+        (!('pdfFileId' in data) || isStr(data.pdfFileId, 0, 128)) &&
+        (!('pdfFileName' in data) || isStr(data.pdfFileName, 0, 250)) &&
+        (!('pdfFileSize' in data) || isStr(data.pdfFileSize, 0, 64)) &&
+        (!('pdfDataUrl' in data) || isStr(data.pdfDataUrl, 0, 100000));
     }
 
     function isValidRecharge(data) {
@@ -171,7 +176,8 @@ service cloud.firestore {
           'id', 'userId', 'userName', 'userPhone', 'type', 'operator',
           'targetPhone', 'simType', 'amount', 'offerId', 'offerTitle',
           'offerCategory', 'customerNote', 'status', 'timestamp',
-          'completedAt', 'trxId', 'note'
+          'completedAt', 'trxId', 'note',
+          'pdfFileId', 'pdfFileName', 'pdfFileSize', 'pdfDataUrl'
         ]) &&
         isValidId(data.id) &&
         isValidId(data.userId) &&
@@ -190,7 +196,11 @@ service cloud.firestore {
         isStr(data.timestamp, 1, 64) &&
         (!('completedAt' in data) || isStr(data.completedAt, 0, 64)) &&
         isStr(data.trxId, 1, 100) &&
-        (!('note' in data) || isStr(data.note, 0, 500));
+        (!('note' in data) || isStr(data.note, 0, 500)) &&
+        (!('pdfFileId' in data) || isStr(data.pdfFileId, 0, 128)) &&
+        (!('pdfFileName' in data) || isStr(data.pdfFileName, 0, 250)) &&
+        (!('pdfFileSize' in data) || isStr(data.pdfFileSize, 0, 64)) &&
+        (!('pdfDataUrl' in data) || isStr(data.pdfDataUrl, 0, 100000));
     }
 
     function isValidNidOrder(data) {
@@ -327,7 +337,9 @@ service cloud.firestore {
         incoming().id == existing().id &&
         incoming().userId == existing().userId &&
         incoming().trxId == existing().trxId &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'adminNote']);
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'adminNote', 'pdfFileId', 'pdfFileName', 'pdfFileSize', 'pdfDataUrl'
+        ]);
       allow delete: if isValidId(requestId) && existing() is map;
     }
 
@@ -339,7 +351,9 @@ service cloud.firestore {
         incoming().id == existing().id &&
         incoming().userId == existing().userId &&
         incoming().trxId == existing().trxId &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'completedAt', 'note']);
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'completedAt', 'note', 'pdfFileId', 'pdfFileName', 'pdfFileSize', 'pdfDataUrl'
+        ]);
       allow delete: if isValidId(requestId) && existing() is map;
     }
 

@@ -83,9 +83,22 @@ interface AdminPanelProps {
   notifications: AdminNotification[];
   settings: AppSettings;
   onApproveAddMoney: (requestId: string) => void;
-  onRejectAddMoney: (requestId: string, reason?: string) => void;
+  onRejectAddMoney: (
+    requestId: string,
+    reason?: string,
+    pdfDataUrl?: string,
+    pdfFileName?: string,
+    pdfFileSize?: string
+  ) => void;
   onCompleteRecharge: (requestId: string) => void;
-  onRejectRecharge: (requestId: string, refund: boolean) => void;
+  onRejectRecharge: (
+    requestId: string,
+    refund: boolean,
+    rejectionReason?: string,
+    pdfDataUrl?: string,
+    pdfFileName?: string,
+    pdfFileSize?: string
+  ) => void;
   onCompleteNidOrder: (
     orderId: string,
     deliveryNote?: string,
@@ -94,7 +107,14 @@ interface AdminPanelProps {
     pdfFileName?: string,
     pdfFileSize?: string
   ) => void;
-  onRejectNidOrder: (orderId: string, refund: boolean) => void;
+  onRejectNidOrder: (
+    orderId: string,
+    refund: boolean,
+    rejectionReason?: string,
+    pdfDataUrl?: string,
+    pdfFileName?: string,
+    pdfFileSize?: string
+  ) => void;
   onAddDigitalService: (newService: Omit<DigitalServiceItem, 'id'>) => void;
   onUpdateDigitalService: (serviceId: string, updated: Partial<DigitalServiceItem>) => void;
   onDeleteDigitalService: (serviceId: string) => void;
@@ -226,6 +246,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [uploadFileError, setUploadFileError] = useState<string | null>(null);
   const [isReadingAdminFile, setIsReadingAdminFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Unified Rejection Modal (Write Reason + Upload PDF/File + Refund Option)
+  type RejectTarget =
+    | { kind: 'nid'; order: NidOrderRequest }
+    | { kind: 'recharge'; req: RechargeRequest }
+    | { kind: 'add_money'; req: AddMoneyRequest };
+  const [rejectingTarget, setRejectingTarget] = useState<RejectTarget | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [rejectRefundEnabled, setRejectRefundEnabled] = useState(true);
+  const [rejectPdfDataUrl, setRejectPdfDataUrl] = useState<string | null>(null);
+  const [rejectPdfFileName, setRejectPdfFileName] = useState<string | null>(null);
+  const [rejectPdfFileSize, setRejectPdfFileSize] = useState<string | null>(null);
+  const [rejectFileError, setRejectFileError] = useState<string | null>(null);
+  const [isReadingRejectFile, setIsReadingRejectFile] = useState(false);
 
   // New Service Modal State (Custom Digital Service Builder)
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -449,6 +483,100 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setUploadedPdfFileName(null);
     setUploadedPdfFileSize(null);
     setUploadFileError(null);
+  };
+
+  // Unified Reject / Cancel Modal Helpers
+  const openRejectModal = (target: RejectTarget) => {
+    setRejectingTarget(target);
+    setRejectFileError(null);
+    setRejectRefundEnabled(true);
+    if (target.kind === 'nid') {
+      setRejectReasonInput(
+        target.order.adminRemarks ||
+          target.order.deliveryNote ||
+          'তথ্য সঠিক নয় / সার্ভার সমস্যার কারণে অর্ডারটি বাতিল করা হলো।'
+      );
+      setRejectPdfDataUrl(target.order.pdfDataUrl || null);
+      setRejectPdfFileName(target.order.pdfFileName || null);
+      setRejectPdfFileSize(target.order.pdfFileSize || null);
+    } else if (target.kind === 'recharge') {
+      setRejectReasonInput(
+        target.req.note || 'নাম্বার বা প্যাকটি কার্যকর না হওয়ায় অর্ডার বাতিল করা হলো।'
+      );
+      setRejectPdfDataUrl(target.req.pdfDataUrl || null);
+      setRejectPdfFileName(target.req.pdfFileName || null);
+      setRejectPdfFileSize(target.req.pdfFileSize || null);
+    } else {
+      setRejectReasonInput(
+        target.req.adminNote || 'TrxID বা পাঠানো টাকা যাচাই না হওয়ায় রিকোয়েস্ট বাতিল করা হলো।'
+      );
+      setRejectPdfDataUrl(target.req.pdfDataUrl || null);
+      setRejectPdfFileName(target.req.pdfFileName || null);
+      setRejectPdfFileSize(target.req.pdfFileSize || null);
+    }
+  };
+
+  const handleRejectFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    setRejectFileError(null);
+    setIsReadingRejectFile(true);
+    try {
+      const res = await readFileAsDataUrl(file);
+      setRejectPdfDataUrl(res.dataUrl);
+      setRejectPdfFileName(res.fileName);
+      setRejectPdfFileSize(res.fileSize);
+    } catch (err: any) {
+      setRejectFileError(err?.message || 'ফাইল আপলোড করতে সমস্যা হয়েছে।');
+    } finally {
+      setIsReadingRejectFile(false);
+    }
+  };
+
+  const handleConfirmReject = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectingTarget) return;
+
+    const reason = rejectReasonInput.trim() || 'অর্ডারটি বাতিল করা হয়েছে।';
+    const fileDataUrl = rejectPdfDataUrl || undefined;
+    const fileName = rejectPdfFileName || undefined;
+    const fileSize = rejectPdfFileSize || undefined;
+
+    if (rejectingTarget.kind === 'nid') {
+      onRejectNidOrder(
+        rejectingTarget.order.id,
+        rejectRefundEnabled,
+        reason,
+        fileDataUrl,
+        fileName,
+        fileSize
+      );
+    } else if (rejectingTarget.kind === 'recharge') {
+      onRejectRecharge(
+        rejectingTarget.req.id,
+        rejectRefundEnabled,
+        reason,
+        fileDataUrl,
+        fileName,
+        fileSize
+      );
+    } else {
+      onRejectAddMoney(
+        rejectingTarget.req.id,
+        reason,
+        fileDataUrl,
+        fileName,
+        fileSize
+      );
+    }
+
+    setRejectingTarget(null);
+    setRejectPdfDataUrl(null);
+    setRejectPdfFileName(null);
+    setRejectPdfFileSize(null);
+    setRejectFileError(null);
   };
 
   // Service builder handlers
@@ -1186,10 +1314,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             </div>
                           )}
                           {isRejected && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                              <XCircle className="w-3 h-3" />
-                              বাতিল ও রিফান্ডেড
-                            </span>
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                                <XCircle className="w-3 h-3" />
+                                বাতিল ও রিফান্ডেড
+                              </span>
+                              {(order.adminRemarks || order.deliveryNote) && (
+                                <div className="text-[10px] text-rose-700 max-w-[200px] leading-snug">
+                                  কারণ: {order.adminRemarks || order.deliveryNote}
+                                </div>
+                              )}
+                              {order.pdfFileName && (
+                                <div className="text-[10px] text-slate-500 font-mono-nums">
+                                  {order.pdfFileName}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
 
@@ -1216,11 +1356,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               </button>
 
                               <button
-                                onClick={() => onRejectNidOrder(order.id, true)}
-                                className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold rounded-lg text-xs border border-rose-200 transition-colors"
-                                title="বাতিল করুন ও ওয়ালেটে টাকা ফেরত দিন"
+                                type="button"
+                                onClick={() => openRejectModal({ kind: 'nid', order })}
+                                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-xs border border-rose-200 transition-colors flex items-center gap-1"
+                                title="কারণ ও PDF সহ অর্ডার বাতিল ও রিফান্ড করুন"
                               >
-                                রিফান্ড
+                                <XCircle className="w-3.5 h-3.5" />
+                                <span>বাতিল / রিফান্ড</span>
                               </button>
                             </div>
                           ) : (
@@ -1259,8 +1401,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   <span>{order.pdfDataUrl || order.pdfFileId ? 'ফাইল বদলান' : 'ফাইল আপলোড'}</span>
                                 </button>
                               )}
-                              {!isCompleted && (
-                                <span className="text-slate-400 text-[11px]">রিফান্ডেড</span>
+                              {isRejected && (
+                                <button
+                                  type="button"
+                                  onClick={() => openRejectModal({ kind: 'nid', order })}
+                                  className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-[11px] border border-rose-200 flex items-center gap-1"
+                                  title="বাতিলের কারণ বা PDF পরিবর্তন/যোগ করুন"
+                                >
+                                  <UploadCloud className="w-3 h-3" />
+                                  <span>{order.pdfDataUrl || order.pdfFileId ? 'কারণ/ফাইল বদলান' : 'কারণ ও PDF দিন'}</span>
+                                </button>
                               )}
                             </div>
                           )}
@@ -1423,22 +1573,58 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <td className="p-3">
                       {order.status === 'pending' && <span className="text-amber-600 font-bold">পেন্ডিং</span>}
                       {order.status === 'completed' && <span className="text-emerald-600 font-bold">সফল</span>}
-                      {order.status === 'rejected' && <span className="text-rose-600 font-bold">বাতিল</span>}
+                      {order.status === 'rejected' && (
+                        <div>
+                          <span className="text-rose-600 font-bold">বাতিল</span>
+                          {order.note && (
+                            <div className="text-[10px] text-rose-700 max-w-[180px] leading-snug">
+                              {order.note}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3 text-right">
                       {order.status === 'pending' ? (
                         <div className="flex justify-end gap-1.5">
                           <button
                             onClick={() => onCompleteRecharge(order.id)}
-                            className="px-2.5 py-1 bg-emerald-600 text-white rounded text-xs font-bold"
+                            className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-bold"
                           >
                             সফল
                           </button>
                           <button
-                            onClick={() => onRejectRecharge(order.id, true)}
-                            className="px-2 py-1 bg-rose-50 text-rose-600 rounded text-xs"
+                            type="button"
+                            onClick={() => openRejectModal({ kind: 'recharge', req: order })}
+                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold"
                           >
-                            রিফান্ড
+                            বাতিল / রিফান্ড
+                          </button>
+                        </div>
+                      ) : order.status === 'rejected' ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {(order.pdfDataUrl || order.pdfFileId) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void downloadOrderFile({
+                                  fileId: order.pdfFileId || `reject_rc_${order.id}`,
+                                  fileName: order.pdfFileName || `${order.trxId}.pdf`,
+                                  dataUrl: order.pdfDataUrl,
+                                })
+                              }
+                              className="p-1.5 bg-rose-50 text-rose-700 rounded-lg border border-rose-200"
+                              title="সংযুক্ত ফাইল ডাউনলোড করুন"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openRejectModal({ kind: 'recharge', req: order })}
+                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-[11px] border border-rose-200"
+                          >
+                            কারণ/ফাইল
                           </button>
                         </div>
                       ) : (
@@ -1579,15 +1765,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="flex justify-end gap-1.5">
                           <button
                             onClick={() => onApproveAddMoney(req.id)}
-                            className="px-2.5 py-1 bg-emerald-600 text-white rounded font-bold"
+                            className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg font-bold"
                           >
                             অনুমোদন
                           </button>
                           <button
-                            onClick={() => onRejectAddMoney(req.id)}
-                            className="px-2 py-1 bg-slate-100 text-rose-600 rounded"
+                            type="button"
+                            onClick={() => openRejectModal({ kind: 'add_money', req })}
+                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold"
                           >
                             বাতিল
+                          </button>
+                        </div>
+                      ) : req.status === 'rejected' ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {(req.pdfDataUrl || req.pdfFileId) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void downloadOrderFile({
+                                  fileId: req.pdfFileId || `reject_am_${req.id}`,
+                                  fileName: req.pdfFileName || `${req.trxId}.pdf`,
+                                  dataUrl: req.pdfDataUrl,
+                                })
+                              }
+                              className="p-1.5 bg-rose-50 text-rose-700 rounded-lg border border-rose-200"
+                              title="সংযুক্ত ফাইল ডাউনলোড করুন"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openRejectModal({ kind: 'add_money', req })}
+                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-[11px] border border-rose-200"
+                          >
+                            কারণ/ফাইল
                           </button>
                         </div>
                       ) : (
@@ -1613,6 +1826,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <th className="p-3">অপারেটর</th>
                   <th className="p-3">নাম্বার</th>
                   <th className="p-3">পরিমাণ</th>
+                  <th className="p-3">স্ট্যাটাস</th>
                   <th className="p-3 text-right">অ্যাকশন</th>
                 </tr>
               </thead>
@@ -1622,14 +1836,63 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     <td className="p-3 font-bold">{r.operator}</td>
                     <td className="p-3 font-mono-nums font-bold">{r.targetPhone}</td>
                     <td className="p-3 font-bold">{formatTaka(r.amount)}</td>
+                    <td className="p-3">
+                      {r.status === 'pending' && <span className="text-amber-600 font-bold">পেন্ডিং</span>}
+                      {r.status === 'completed' && <span className="text-emerald-600 font-bold">সফল</span>}
+                      {r.status === 'rejected' && (
+                        <div>
+                          <span className="text-rose-600 font-bold">বাতিল</span>
+                          {r.note && (
+                            <div className="text-[10px] text-rose-700 max-w-[180px] leading-snug">
+                              {r.note}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-3 text-right">
                       {r.status === 'pending' ? (
-                        <button
-                          onClick={() => onCompleteRecharge(r.id)}
-                          className="px-2.5 py-1 bg-indigo-600 text-white rounded font-bold"
-                        >
-                          সফল
-                        </button>
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            onClick={() => onCompleteRecharge(r.id)}
+                            className="px-2.5 py-1 bg-indigo-600 text-white rounded-lg font-bold"
+                          >
+                            সফল
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openRejectModal({ kind: 'recharge', req: r })}
+                            className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg font-bold"
+                          >
+                            বাতিল / রিফান্ড
+                          </button>
+                        </div>
+                      ) : r.status === 'rejected' ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {(r.pdfDataUrl || r.pdfFileId) && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void downloadOrderFile({
+                                  fileId: r.pdfFileId || `reject_rc_${r.id}`,
+                                  fileName: r.pdfFileName || `${r.trxId}.pdf`,
+                                  dataUrl: r.pdfDataUrl,
+                                })
+                              }
+                              className="p-1.5 bg-rose-50 text-rose-700 rounded-lg border border-rose-200"
+                              title="সংযুক্ত ফাইল ডাউনলোড করুন"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => openRejectModal({ kind: 'recharge', req: r })}
+                            className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-lg text-[11px] border border-rose-200"
+                          >
+                            কারণ/ফাইল
+                          </button>
+                        </div>
                       ) : (
                         <span className="text-slate-400">সম্পন্ন</span>
                       )}
@@ -2967,6 +3230,218 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 >
                   <Check className="w-4 h-4" />
                   <span>অর্ডার সফল করুন</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* UNIFIED REJECTION MODAL WITH REASON TEXT + PDF/FILE UPLOAD */}
+      {rejectingTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 text-slate-800 shadow-2xl border border-rose-200 animate-in fade-in zoom-in duration-150 my-6">
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <XCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-base text-slate-900">
+                    অর্ডার বাতিল ও কারণ / PDF সংযুক্ত করুন
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    গ্রাহক ড্যাশবোর্ড ও রশিদে আপনার লেখা কারণ ও ফাইল দেখতে পাবেন
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRejectingTarget(null)}
+                className="text-slate-400 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Target Order Info Box */}
+            <div className="bg-rose-50/60 p-3 rounded-xl border border-rose-200/80 mb-4 text-xs space-y-1">
+              {rejectingTarget.kind === 'nid' && (
+                <>
+                  <div>সেবা: <b>{rejectingTarget.order.serviceTitle}</b></div>
+                  <div>NID / তথ্য: <b className="font-mono-nums">{rejectingTarget.order.nidNumber}</b></div>
+                  <div>
+                    গ্রাহক: <b>{rejectingTarget.order.userName}</b> ({rejectingTarget.order.userPhone}) ·{' '}
+                    <b className="font-mono-nums">{formatTaka(rejectingTarget.order.fee)}</b>
+                  </div>
+                </>
+              )}
+              {rejectingTarget.kind === 'recharge' && (
+                <>
+                  <div>
+                    অর্ডার:{' '}
+                    <b>
+                      {rejectingTarget.req.type === 'drive_offer'
+                        ? rejectingTarget.req.offerTitle || 'ড্রাইভ অফার'
+                        : `${rejectingTarget.req.operator} রিচার্জ`}
+                    </b>
+                  </div>
+                  <div>নাম্বার: <b className="font-mono-nums">{rejectingTarget.req.targetPhone}</b></div>
+                  <div>
+                    গ্রাহক: <b>{rejectingTarget.req.userName}</b> ·{' '}
+                    <b className="font-mono-nums">{formatTaka(rejectingTarget.req.amount)}</b>
+                  </div>
+                </>
+              )}
+              {rejectingTarget.kind === 'add_money' && (
+                <>
+                  <div>মেথড: <b>{rejectingTarget.req.method} অ্যাড মানি</b></div>
+                  <div>প্রেরক: <b className="font-mono-nums">{rejectingTarget.req.senderNumber}</b> · TrxID: <b className="font-mono-nums">{rejectingTarget.req.trxId}</b></div>
+                  <div>
+                    গ্রাহক: <b>{rejectingTarget.req.userName}</b> ·{' '}
+                    <b className="font-mono-nums">{formatTaka(rejectingTarget.req.amount)}</b>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <form onSubmit={handleConfirmReject} className="space-y-4 text-xs">
+              {/* 1. Rejection Reason Text */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">
+                  ১. বাতিল করার কারণ লিখুন (গ্রাহক সরাসরি দেখতে পাবেন) *
+                </label>
+
+                {/* Quick Reason Chips */}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {[
+                    'তথ্য সঠিক নয়, সঠিক তথ্য দিয়ে পুনরায় অর্ডার করুন',
+                    'NID নাম্বার বা জন্ম তারিখ মিলছে না',
+                    'দেওয়া ফাইল অস্পষ্ট, পরিষ্কার কপি দিন',
+                    'সার্ভার সমস্যার কারণে অর্ডারটি বাতিল করা হলো',
+                    'TrxID বা পেমেন্ট পাওয়া যায়নি',
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setRejectReasonInput(preset)}
+                      className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-[10px] font-semibold transition-colors text-left"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  rows={3}
+                  required
+                  value={rejectReasonInput}
+                  onChange={(e) => setRejectReasonInput(e.target.value)}
+                  placeholder="গ্রাহককে জানান কেন অর্ডারটি বাতিল করা হলো..."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 focus:border-rose-500 focus:ring-2 focus:ring-rose-100 outline-none text-xs leading-relaxed"
+                />
+              </div>
+
+              {/* 2. Optional PDF / Screenshot / File Upload */}
+              <div>
+                <label className="block font-bold text-slate-700 mb-1.5">
+                  ২. প্রমাণ বা ব্যাখ্যাসহ PDF / ফাইল আপলোড করুন (ঐচ্ছিক)
+                </label>
+
+                {rejectFileError && (
+                  <div className="mb-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{rejectFileError}</span>
+                  </div>
+                )}
+
+                <label
+                  htmlFor="admin-reject-file-input"
+                  className={`block border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+                    rejectPdfFileName
+                      ? 'border-rose-400 bg-rose-50/50'
+                      : 'border-slate-300 hover:border-rose-400 bg-slate-50/50'
+                  }`}
+                >
+                  <input
+                    id="admin-reject-file-input"
+                    type="file"
+                    onChange={handleRejectFileChange}
+                    className="sr-only"
+                  />
+                  <FileUp className="w-6 h-6 text-rose-600 mx-auto mb-1.5" />
+                  {isReadingRejectFile ? (
+                    <p className="font-bold text-rose-700 text-xs">
+                      ফাইল লোড হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন...
+                    </p>
+                  ) : rejectPdfFileName ? (
+                    <div>
+                      <p className="font-bold text-rose-700 text-xs break-all">
+                        ✓ ফাইল সিলেক্ট হয়েছে: {rejectPdfFileName}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">
+                        সাইজ: {rejectPdfFileSize} · অন্য ফাইল দিতে আবার ক্লিক করুন
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="font-semibold text-slate-700">
+                        PDF, স্ক্রিনশট বা যেকোনো ফাইল আপলোড করতে এখানে ক্লিক করুন
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        সর্বোচ্চ ১০ MB (PDF, JPG, PNG, DOC ইত্যাদি)
+                      </p>
+                    </div>
+                  )}
+                </label>
+
+                {rejectPdfFileName && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRejectPdfDataUrl(null);
+                      setRejectPdfFileName(null);
+                      setRejectPdfFileSize(null);
+                    }}
+                    className="mt-1.5 text-[11px] font-semibold text-slate-500 hover:text-rose-600"
+                  >
+                    ✕ সিলেক্টেড ফাইল সরিয়ে ফেলুন
+                  </button>
+                )}
+              </div>
+
+              {/* 3. Refund Checkbox for Pending Paid Orders */}
+              {rejectingTarget.kind !== 'add_money' &&
+                ((rejectingTarget.kind === 'nid' && rejectingTarget.order.status === 'pending') ||
+                  (rejectingTarget.kind === 'recharge' && rejectingTarget.req.status === 'pending')) && (
+                  <label className="flex items-center gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rejectRefundEnabled}
+                      onChange={(e) => setRejectRefundEnabled(e.target.checked)}
+                      className="rounded border-amber-400 text-rose-600 focus:ring-rose-500"
+                    />
+                    <span className="font-bold text-amber-950">
+                      গ্রাহকের ওয়ালেটে টাকা ফেরত (রিফান্ড) দিন
+                    </span>
+                  </label>
+                )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setRejectingTarget(null)}
+                  className="flex-1 py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl"
+                >
+                  ফিরে যান
+                </button>
+                <button
+                  type="submit"
+                  disabled={isReadingRejectFile}
+                  className="flex-1 py-2.5 px-3 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <XCircle className="w-4 h-4" />
+                  <span>কারণ ও ফাইলসহ বাতিল করুন</span>
                 </button>
               </div>
             </form>

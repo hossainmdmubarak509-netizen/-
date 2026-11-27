@@ -79,6 +79,10 @@ export interface AddMoneyRequest {
   status: 'pending' | 'approved' | 'rejected';
   timestamp: string;
   adminNote?: string;
+  pdfFileId?: string;
+  pdfFileName?: string;
+  pdfFileSize?: string;
+  pdfDataUrl?: string;
 }
 
 export interface RechargeRequest {
@@ -100,6 +104,10 @@ export interface RechargeRequest {
   completedAt?: string;
   trxId: string;
   note?: string;
+  pdfFileId?: string;
+  pdfFileName?: string;
+  pdfFileSize?: string;
+  pdfDataUrl?: string;
 }
 
 export interface NidOrderRequest {

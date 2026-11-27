@@ -774,18 +774,60 @@ export default function App() {
     }
   };
 
-  // Admin Reject & Refund NID Order
-  const handleRejectNidOrder = async (orderId: string, refund: boolean) => {
+  // Admin Reject & Refund NID Order (with Reason & Optional PDF/File Attachment)
+  const handleRejectNidOrder = async (
+    orderId: string,
+    refund: boolean,
+    rejectionReason?: string,
+    pdfDataUrl?: string,
+    pdfFileName?: string,
+    pdfFileSize?: string
+  ) => {
     const order = nidOrders.find((o) => o.id === orderId);
     if (!order) return;
 
+    const wasPending = order.status === 'pending';
+    const pdfFileId = pdfDataUrl
+      ? `reject_nid_${orderId}_${Date.now()}`
+      : order.pdfFileId;
+
+    if (pdfDataUrl && pdfFileId) {
+      await uploadCloudFile({
+        fileId: pdfFileId,
+        fileName: pdfFileName || order.pdfFileName || 'rejection_document.pdf',
+        fileSize: pdfFileSize || order.pdfFileSize,
+        dataUrl: pdfDataUrl,
+      });
+    }
+
+    const cleanReason =
+      rejectionReason?.trim() ||
+      order.adminRemarks ||
+      order.deliveryNote ||
+      'অর্ডারটি বাতিল করা হয়েছে।';
+
+    const updatePayload = sanitizeForFirestore({
+      status: 'rejected',
+      completedAt: order.completedAt || new Date().toISOString(),
+      adminRemarks: cleanReason,
+      deliveryNote: cleanReason,
+      pdfFileId,
+      pdfFileName: pdfFileName || order.pdfFileName,
+      pdfFileSize: pdfFileSize || order.pdfFileSize,
+      pdfDataUrl: pdfDataUrl
+        ? pdfDataUrl.length <= 50000
+          ? pdfDataUrl
+          : ''
+        : order.pdfDataUrl || '',
+    });
+
     try {
-      await updateDoc(doc(db, 'nid_orders', orderId), { status: 'rejected' });
+      await updateDoc(doc(db, 'nid_orders', orderId), updatePayload);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `nid_orders/${orderId}`);
     }
 
-    if (refund) {
+    if (refund && wasPending) {
       const targetUser = users.find((u) => u.id === order.userId);
       if (targetUser) {
         try {
@@ -797,8 +839,10 @@ export default function App() {
         }
       }
       showToast(`অর্ডার বাতিল ও ৳${order.fee} গ্রাহকের ওয়ালেটে ফেরত দেওয়া হয়েছে।`, 'info');
+    } else if (!wasPending) {
+      showToast('বাতিলের কারণ ও ফাইল সফলভাবে আপডেট হয়েছে!', 'success');
     } else {
-      showToast('অর্ডার বাতিল করা হয়েছে।', 'info');
+      showToast('কারণসহ অর্ডারটি বাতিল করা হয়েছে।', 'info');
     }
   };
 
@@ -874,11 +918,44 @@ export default function App() {
     showToast(`৳${req.amount} ব্যালেন্স সফলভাবে যোগ করা হয়েছে!`, 'success');
   };
 
-  // Admin Actions: Reject Add Money
-  const handleRejectAddMoney = async (requestId: string) => {
+  // Admin Actions: Reject Add Money (with Reason & Optional PDF/File Attachment)
+  const handleRejectAddMoney = async (
+    requestId: string,
+    reason?: string,
+    pdfDataUrl?: string,
+    pdfFileName?: string,
+    pdfFileSize?: string
+  ) => {
+    const req = addMoneyRequests.find((r) => r.id === requestId);
+    const pdfFileId = pdfDataUrl
+      ? `reject_am_${requestId}_${Date.now()}`
+      : req?.pdfFileId;
+
+    if (pdfDataUrl && pdfFileId) {
+      await uploadCloudFile({
+        fileId: pdfFileId,
+        fileName: pdfFileName || req?.pdfFileName || 'rejection_document.pdf',
+        fileSize: pdfFileSize || req?.pdfFileSize,
+        dataUrl: pdfDataUrl,
+      });
+    }
+
+    const updatePayload = sanitizeForFirestore({
+      status: 'rejected',
+      adminNote: reason?.trim() || req?.adminNote || 'অ্যাড মানি রিকোয়েস্ট বাতিল করা হয়েছে।',
+      pdfFileId,
+      pdfFileName: pdfFileName || req?.pdfFileName,
+      pdfFileSize: pdfFileSize || req?.pdfFileSize,
+      pdfDataUrl: pdfDataUrl
+        ? pdfDataUrl.length <= 50000
+          ? pdfDataUrl
+          : ''
+        : req?.pdfDataUrl || '',
+    });
+
     try {
-      await updateDoc(doc(db, 'add_money_requests', requestId), { status: 'rejected' });
-      showToast('অ্যাড মানি রিকোয়েস্ট বাতিল করা হয়েছে।', 'info');
+      await updateDoc(doc(db, 'add_money_requests', requestId), updatePayload);
+      showToast('কারণসহ অ্যাড মানি রিকোয়েস্ট বাতিল করা হয়েছে।', 'info');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `add_money_requests/${requestId}`);
     }
@@ -897,18 +974,53 @@ export default function App() {
     }
   };
 
-  // Admin Actions: Reject & Refund Recharge
-  const handleRejectRecharge = async (requestId: string, refund: boolean) => {
+  // Admin Actions: Reject & Refund Recharge / Drive Offer (with Reason & Optional PDF/File)
+  const handleRejectRecharge = async (
+    requestId: string,
+    refund: boolean,
+    rejectionReason?: string,
+    pdfDataUrl?: string,
+    pdfFileName?: string,
+    pdfFileSize?: string
+  ) => {
     const req = rechargeRequests.find((r) => r.id === requestId);
     if (!req) return;
 
+    const wasPending = req.status === 'pending';
+    const pdfFileId = pdfDataUrl
+      ? `reject_rc_${requestId}_${Date.now()}`
+      : req.pdfFileId;
+
+    if (pdfDataUrl && pdfFileId) {
+      await uploadCloudFile({
+        fileId: pdfFileId,
+        fileName: pdfFileName || req.pdfFileName || 'rejection_document.pdf',
+        fileSize: pdfFileSize || req.pdfFileSize,
+        dataUrl: pdfDataUrl,
+      });
+    }
+
+    const updatePayload = sanitizeForFirestore({
+      status: 'rejected',
+      completedAt: req.completedAt || new Date().toISOString(),
+      note: rejectionReason?.trim() || req.note || 'অর্ডারটি বাতিল করা হয়েছে।',
+      pdfFileId,
+      pdfFileName: pdfFileName || req.pdfFileName,
+      pdfFileSize: pdfFileSize || req.pdfFileSize,
+      pdfDataUrl: pdfDataUrl
+        ? pdfDataUrl.length <= 50000
+          ? pdfDataUrl
+          : ''
+        : req.pdfDataUrl || '',
+    });
+
     try {
-      await updateDoc(doc(db, 'recharge_requests', requestId), { status: 'rejected' });
+      await updateDoc(doc(db, 'recharge_requests', requestId), updatePayload);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `recharge_requests/${requestId}`);
     }
 
-    if (refund) {
+    if (refund && wasPending) {
       const targetUser = users.find((u) => u.id === req.userId);
       if (targetUser) {
         try {
@@ -919,9 +1031,11 @@ export default function App() {
           handleFirestoreError(error, OperationType.UPDATE, `portal_users/${targetUser.id}`);
         }
       }
-      showToast(`রিচার্জ বাতিল ও ৳${req.amount} গ্রাহকের ওয়ালেটে ফেরত দেওয়া হয়েছে।`, 'info');
+      showToast(`অর্ডার বাতিল ও ৳${req.amount} গ্রাহকের ওয়ালেটে ফেরত দেওয়া হয়েছে।`, 'info');
+    } else if (!wasPending) {
+      showToast('বাতিলের কারণ ও ফাইল সফলভাবে আপডেট হয়েছে!', 'success');
     } else {
-      showToast('রিচার্জ বাতিল করা হয়েছে।', 'info');
+      showToast('কারণসহ অর্ডার বাতিল করা হয়েছে।', 'info');
     }
   };
 

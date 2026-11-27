@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Wallet, Copy, Check, AlertCircle, ArrowRight, ShieldCheck, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { Wallet, Copy, Check, AlertCircle, ArrowRight, ShieldCheck, Clock, CheckCircle2, XCircle, Download } from 'lucide-react';
 import { PaymentMethod, User, AddMoneyRequest, AppSettings } from '../types/telecom';
 import { formatTaka, formatDateTime, isValidBdPhone } from '../utils/telecomUtils';
+import { downloadOrderFile } from '../utils/cloudFileService';
 
 interface AddMoneyTabProps {
   currentUser: User;
@@ -293,50 +294,103 @@ export const AddMoneyTab: React.FC<AddMoneyTabProps> = ({
           </p>
         ) : (
           <div className="divide-y divide-slate-100 text-xs">
-            {userRequests.map((req) => (
-              <div
-                key={req.id}
-                onClick={() => onViewReceipt(req)}
-                className="py-3 flex items-center justify-between hover:bg-slate-50/70 p-2 rounded-xl transition-colors cursor-pointer"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900">{req.method}</span>
-                    <span className="text-slate-400">·</span>
-                    <span className="font-mono-nums text-slate-600">{req.senderNumber}</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
-                    <span className="font-mono-nums">TrxID: {req.trxId}</span>
-                    <span>·</span>
-                    <span>{formatDateTime(req.timestamp)}</span>
-                  </div>
-                </div>
+            {userRequests.map((req) => {
+              const isRejected = req.status === 'rejected';
+              const hasFile = Boolean(req.pdfDataUrl || req.pdfFileId);
 
-                <div className="text-right flex items-center gap-3">
-                  <span className="font-mono-nums font-bold text-slate-900 text-sm">
-                    {formatTaka(req.amount)}
-                  </span>
-                  {req.status === 'approved' && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                      <CheckCircle2 className="w-3 h-3" />
-                      অনুমোদিত
+              return (
+                <div
+                  key={req.id}
+                  onClick={() => onViewReceipt(req)}
+                  className="py-3 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/70 p-2 rounded-xl transition-colors cursor-pointer gap-2"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900">{req.method}</span>
+                      <span className="text-slate-400">·</span>
+                      <span className="font-mono-nums text-slate-600">{req.senderNumber}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+                      <span className="font-mono-nums">TrxID: {req.trxId}</span>
+                      <span>·</span>
+                      <span>{formatDateTime(req.timestamp)}</span>
+                      {req.pdfFileName && (
+                        <>
+                          <span>·</span>
+                          <span className={`font-semibold font-mono-nums ${isRejected ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            {req.pdfFileName} ({req.pdfFileSize || 'PDF'})
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {req.adminNote && (
+                      <div
+                        className={`mt-1.5 inline-flex items-start gap-1.5 px-2.5 py-1 rounded-lg text-[11px] border ${
+                          isRejected
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : 'bg-slate-50 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        <AlertCircle
+                          className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                            isRejected ? 'text-rose-600' : 'text-slate-500'
+                          }`}
+                        />
+                        <span>
+                          <b>{isRejected ? 'বাতিলের কারণ:' : 'নোট:'}</b> {req.adminNote}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-right flex items-center gap-2.5 self-end sm:self-center shrink-0">
+                    {hasFile && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void downloadOrderFile({
+                            fileId: req.pdfFileId || `reject_am_${req.id}`,
+                            fileName: req.pdfFileName || `${req.trxId}_document.pdf`,
+                            dataUrl: req.pdfDataUrl,
+                          });
+                        }}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-white transition-colors ${
+                          isRejected
+                            ? 'bg-rose-600 hover:bg-rose-700'
+                            : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
+                        title="সংযুক্ত ফাইল / PDF ডাউনলোড করুন"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>ফাইল / PDF</span>
+                      </button>
+                    )}
+                    <span className="font-mono-nums font-bold text-slate-900 text-sm">
+                      {formatTaka(req.amount)}
                     </span>
-                  )}
-                  {req.status === 'pending' && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
-                      <Clock className="w-3 h-3" />
-                      পেন্ডিং
-                    </span>
-                  )}
-                  {req.status === 'rejected' && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
-                      <XCircle className="w-3 h-3" />
-                      বাতিল
-                    </span>
-                  )}
+                    {req.status === 'approved' && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                        <CheckCircle2 className="w-3 h-3" />
+                        অনুমোদিত
+                      </span>
+                    )}
+                    {req.status === 'pending' && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                        <Clock className="w-3 h-3" />
+                        পেন্ডিং
+                      </span>
+                    )}
+                    {isRejected && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                        <XCircle className="w-3 h-3" />
+                        বাতিল
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { History, Search, CheckCircle2, Clock, XCircle, FileText, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { History, Search, CheckCircle2, Clock, XCircle, FileText, ArrowDownLeft, ArrowUpRight, Download, AlertCircle } from 'lucide-react';
 import { RechargeRequest, AddMoneyRequest } from '../types/telecom';
 import { formatTaka, formatDateTime } from '../utils/telecomUtils';
+import { downloadOrderFile } from '../utils/cloudFileService';
 
 interface HistoryTabProps {
   rechargeList: RechargeRequest[];
@@ -185,6 +186,11 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             const isApproved = item.status === 'completed' || item.status === 'approved';
             const isPending = item.status === 'pending';
             const isRejected = item.status === 'rejected';
+            const adminNoteText =
+              item.itemType === 'add_money'
+                ? (item.raw as AddMoneyRequest).adminNote
+                : (item.raw as RechargeRequest).note;
+            const hasAttachedFile = Boolean(item.raw.pdfDataUrl || item.raw.pdfFileId);
 
             return (
               <div
@@ -211,11 +217,41 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                       {item.title}
                     </h5>
                     <p className="text-slate-500 text-xs mt-0.5">{item.subTitle}</p>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-1">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-400 mt-1">
                       <span className="font-mono-nums">TrxID: {item.trxId}</span>
                       <span>·</span>
                       <span>{formatDateTime(item.timestamp)}</span>
+                      {item.raw.pdfFileName && (
+                        <>
+                          <span>·</span>
+                          <span
+                            className={`font-semibold font-mono-nums ${
+                              isRejected ? 'text-rose-600' : 'text-emerald-600'
+                            }`}
+                          >
+                            {item.raw.pdfFileName} ({item.raw.pdfFileSize || 'PDF'})
+                          </span>
+                        </>
+                      )}
                     </div>
+                    {adminNoteText && (
+                      <div
+                        className={`mt-1.5 inline-flex items-start gap-1.5 px-2.5 py-1 rounded-lg text-[11px] border ${
+                          isRejected
+                            ? 'bg-rose-50 text-rose-800 border-rose-200'
+                            : 'bg-slate-50 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        <AlertCircle
+                          className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                            isRejected ? 'text-rose-600' : 'text-slate-500'
+                          }`}
+                        />
+                        <span>
+                          <b>{isRejected ? 'বাতিলের কারণ:' : 'নোট:'}</b> {adminNoteText}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -229,6 +265,28 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
                   </span>
 
                   <div className="flex items-center gap-2">
+                    {hasAttachedFile && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void downloadOrderFile({
+                            fileId: item.raw.pdfFileId || `file_${item.id}`,
+                            fileName: item.raw.pdfFileName || `${item.trxId}_document.pdf`,
+                            dataUrl: item.raw.pdfDataUrl,
+                          });
+                        }}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold text-white transition-colors shadow-xs ${
+                          isRejected
+                            ? 'bg-rose-600 hover:bg-rose-700'
+                            : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
+                        title="সংযুক্ত ফাইল / PDF ডাউনলোড করুন"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>ফাইল / PDF</span>
+                      </button>
+                    )}
                     {isApproved && (
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
                         <CheckCircle2 className="w-3 h-3" />

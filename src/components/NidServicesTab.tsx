@@ -663,9 +663,15 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
               const isCompleted = order.status === 'completed';
               const isPending = order.status === 'pending';
               const isRejected = order.status === 'rejected';
+              const hasAttachableFile = Boolean(
+                order.pdfDataUrl || order.pdfFileId || (order.deliveryFileUrl && order.deliveryFileUrl !== '#')
+              );
+              const noteText = isRejected
+                ? order.adminRemarks || order.deliveryNote
+                : order.deliveryNote;
 
               const handleDownloadPdf = async () => {
-                if (order.pdfDataUrl || order.pdfFileId || (order.deliveryFileUrl && order.deliveryFileUrl !== '#')) {
+                if (hasAttachableFile) {
                   const downloaded = await downloadOrderFile({
                     fileId: order.pdfFileId || `delivery_${order.id}`,
                     fileName: order.pdfFileName || `${order.serviceTitle}_${order.nidNumber}.pdf`,
@@ -735,7 +741,11 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                       {order.pdfFileName && (
                         <>
                           <span>·</span>
-                          <span className="text-emerald-700 font-semibold font-mono-nums">
+                          <span
+                            className={`font-semibold font-mono-nums ${
+                              isRejected ? 'text-rose-700' : 'text-emerald-700'
+                            }`}
+                          >
                             {order.pdfFileName} ({order.pdfFileSize || 'PDF'})
                           </span>
                         </>
@@ -765,11 +775,18 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                       </div>
                     )}
 
-                    {order.deliveryNote && (
-                      <div className="mt-1.5 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs text-emerald-900 flex items-start gap-1.5">
-                        <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                        <span><b>এডমিন বার্তা:</b> {order.deliveryNote}</span>
-                      </div>
+                    {noteText && (
+                      isRejected ? (
+                        <div className="mt-1.5 p-2.5 bg-rose-50 rounded-lg border border-rose-200 text-xs text-rose-900 flex items-start gap-1.5">
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                          <span><b>বাতিল করার কারণ (এডমিন বার্তা):</b> {noteText}</span>
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 p-2 bg-emerald-50 rounded-lg border border-emerald-200 text-xs text-emerald-900 flex items-start gap-1.5">
+                          <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                          <span><b>এডমিন বার্তা:</b> {noteText}</span>
+                        </div>
+                      )
                     )}
                   </div>
 
@@ -779,14 +796,24 @@ export const NidServicesTab: React.FC<NidServicesTabProps> = ({
                     </span>
 
                     <div className="flex items-center gap-2">
-                      {isCompleted && (
+                      {(isCompleted || (isRejected && hasAttachableFile)) && (
                         <button
                           onClick={handleDownloadPdf}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"
-                          title="অফিসিয়াল ডেলিভারি ফাইল ডাউনলোড করুন"
+                          className={`px-3.5 py-1.5 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-xs ${
+                            isRejected
+                              ? 'bg-rose-600 hover:bg-rose-700'
+                              : 'bg-emerald-600 hover:bg-emerald-700'
+                          }`}
+                          title={
+                            isRejected
+                              ? 'বাতিলের কারণ ও সংযুক্ত ফাইল ডাউনলোড করুন'
+                              : 'অফিসিয়াল ডেলিভারি ফাইল ডাউনলোড করুন'
+                          }
                         >
                           <Download className="w-4 h-4" />
-                          <span>ফাইল / PDF ডাউনলোড</span>
+                          <span>
+                            {isRejected ? 'কারণ / ফাইল PDF ডাউনলোড' : 'ফাইল / PDF ডাউনলোড'}
+                          </span>
                         </button>
                       )}
                       <button

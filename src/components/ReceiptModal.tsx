@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Clock, XCircle, Copy, Check, Printer, X, ShieldCheck, Download } from 'lucide-react';
+import { CheckCircle2, Clock, XCircle, Copy, Check, Printer, X, ShieldCheck, Download, AlertCircle } from 'lucide-react';
 import { RechargeRequest, AddMoneyRequest, NidOrderRequest, Operator } from '../types/telecom';
 import { formatTaka, formatDateTime, OPERATORS } from '../utils/telecomUtils';
 import { downloadOrderFile } from '../utils/cloudFileService';
@@ -18,13 +18,31 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
   const isNidOrder = 'serviceType' in receipt;
   const isAddMoney = !isRecharge && !isNidOrder;
 
+  const nidReq = isNidOrder ? (receipt as NidOrderRequest) : null;
+  const rechargeReq = isRecharge ? (receipt as RechargeRequest) : null;
+  const addMoneyReq = isAddMoney ? (receipt as AddMoneyRequest) : null;
+
   const amount = isNidOrder
-    ? (receipt as NidOrderRequest).fee
+    ? nidReq!.fee
     : (receipt as RechargeRequest | AddMoneyRequest).amount;
 
   const isApproved = receipt.status === 'completed' || receipt.status === 'approved';
   const isPending = receipt.status === 'pending';
   const isRejected = receipt.status === 'rejected';
+
+  const adminNote = isNidOrder
+    ? isRejected
+      ? nidReq!.adminRemarks || nidReq!.deliveryNote
+      : nidReq!.deliveryNote
+    : isRecharge
+    ? rechargeReq!.note
+    : addMoneyReq!.adminNote;
+
+  const hasAttachedFile = Boolean(
+    receipt.pdfDataUrl ||
+      receipt.pdfFileId ||
+      (nidReq?.deliveryFileUrl && nidReq.deliveryFileUrl !== '#')
+  );
 
   const copyTrxId = () => {
     navigator.clipboard.writeText(receipt.trxId);
@@ -225,14 +243,6 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
                       </div>
                     </div>
                   )}
-                {(receipt as NidOrderRequest).deliveryNote && (
-                  <div className="flex justify-between items-start gap-2 pt-1 border-t border-slate-200">
-                    <span className="text-slate-600 shrink-0">ডেলিভারি নোট</span>
-                    <span className="text-right font-semibold text-emerald-700 text-xs">
-                      {(receipt as NidOrderRequest).deliveryNote}
-                    </span>
-                  </div>
-                )}
               </>
             )}
 
@@ -252,6 +262,29 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
               </>
             )}
 
+            {/* Unified Admin Delivery / Rejection Note */}
+            {adminNote && (
+              <div
+                className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
+                  isRejected
+                    ? 'bg-rose-50 border-rose-200 text-rose-900'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                }`}
+              >
+                <AlertCircle
+                  className={`w-4 h-4 shrink-0 mt-0.5 ${
+                    isRejected ? 'text-rose-600' : 'text-emerald-600'
+                  }`}
+                />
+                <div className="leading-relaxed">
+                  <span className="font-bold">
+                    {isRejected ? 'বাতিল করার কারণ (এডমিন বার্তা): ' : 'ডেলিভারি / এডমিন নোট: '}
+                  </span>
+                  <span>{adminNote}</span>
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-xs text-slate-500">
               <span>তারিখ ও সময়</span>
               <span className="font-mono-nums">{formatDateTime(receipt.timestamp)}</span>
@@ -269,25 +302,46 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, onClose }) 
             <span>ডিজিটাল সেবা পোর্টাল সিস্টেম দ্বারা স্বয়ংক্রিয়ভাবে প্রস্তুতকৃত অফিসিয়াল রশিদ।</span>
           </div>
 
-          {/* Completed NID Order File / PDF Download */}
-          {isNidOrder && receipt.status === 'completed' && (
+          {/* Completed or Rejected Order File / PDF Download */}
+          {hasAttachedFile && (isApproved || isRejected) && (
             <button
               onClick={() => {
-                const nidReq = receipt as NidOrderRequest;
                 void downloadOrderFile({
-                  fileId: nidReq.pdfFileId || `delivery_${nidReq.id}`,
-                  fileName: nidReq.pdfFileName || `${nidReq.serviceTitle}_${nidReq.nidNumber}.pdf`,
-                  dataUrl: nidReq.pdfDataUrl,
-                  fallbackUrl: nidReq.deliveryFileUrl,
+                  fileId:
+                    receipt.pdfFileId ||
+                    (isNidOrder
+                      ? `delivery_${receipt.id}`
+                      : isAddMoney
+                      ? `reject_am_${receipt.id}`
+                      : `reject_rc_${receipt.id}`),
+                  fileName:
+                    receipt.pdfFileName ||
+                    (isNidOrder
+                      ? `${nidReq!.serviceTitle}_${nidReq!.nidNumber}.pdf`
+                      : `${receipt.trxId}_document.pdf`),
+                  dataUrl: receipt.pdfDataUrl,
+                  fallbackUrl: nidReq?.deliveryFileUrl,
                 });
               }}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition-all shadow-sm"
+              className={`w-full flex items-center justify-center gap-2 py-3 px-4 text-white font-bold text-sm rounded-xl transition-all shadow-sm ${
+                isRejected
+                  ? 'bg-rose-600 hover:bg-rose-700'
+                  : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}
             >
               <Download className="w-4 h-4" />
-              <span>অফিসিয়াল ফাইল / PDF ডাউনলোড করুন</span>
-              {(receipt as NidOrderRequest).pdfFileSize && (
-                <span className="text-xs text-emerald-100 font-mono-nums">
-                  ({(receipt as NidOrderRequest).pdfFileSize})
+              <span>
+                {isRejected
+                  ? 'বাতিলের কারণ / সংযুক্ত PDF ডাউনলোড করুন'
+                  : 'অফিসিয়াল ফাইল / PDF ডাউনলোড করুন'}
+              </span>
+              {receipt.pdfFileSize && (
+                <span
+                  className={`text-xs font-mono-nums ${
+                    isRejected ? 'text-rose-100' : 'text-emerald-100'
+                  }`}
+                >
+                  ({receipt.pdfFileSize})
                 </span>
               )}
             </button>

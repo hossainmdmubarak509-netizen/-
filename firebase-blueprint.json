@@ -93,7 +93,11 @@
         "trxId": { "type": "string", "maxLength": 100 },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
         "timestamp": { "type": "string", "maxLength": 64 },
-        "adminNote": { "type": "string", "maxLength": 500 }
+        "adminNote": { "type": "string", "maxLength": 500 },
+        "pdfFileId": { "type": "string", "maxLength": 128 },
+        "pdfFileName": { "type": "string", "maxLength": 250 },
+        "pdfFileSize": { "type": "string", "maxLength": 64 },
+        "pdfDataUrl": { "type": "string", "maxLength": 100000 }
       },
       "required": ["id", "userId", "userName", "userPhone", "method", "senderNumber", "amount", "trxId", "status", "timestamp"]
     },
@@ -119,7 +123,11 @@
         "timestamp": { "type": "string", "maxLength": 64 },
         "completedAt": { "type": "string", "maxLength": 64 },
         "trxId": { "type": "string", "maxLength": 100 },
-        "note": { "type": "string", "maxLength": 500 }
+        "note": { "type": "string", "maxLength": 500 },
+        "pdfFileId": { "type": "string", "maxLength": 128 },
+        "pdfFileName": { "type": "string", "maxLength": 250 },
+        "pdfFileSize": { "type": "string", "maxLength": 64 },
+        "pdfDataUrl": { "type": "string", "maxLength": 100000 }
       },
       "required": ["id", "userId", "userName", "userPhone", "type", "operator", "targetPhone", "simType", "amount", "status", "timestamp", "trxId"]
     },
